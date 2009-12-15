@@ -2084,7 +2084,7 @@ class Parser:
         fproxy = self.top_scope.NewUnresolved(function_name, inside_with())
         fproxy.BindTo(fvar)
         body.append(ExpressionStatement(Assignment("INIT_VAR",
-                               fproxy, ThisFunction())))
+                                                   fproxy, ThisFunction())))
 
       self.ParseSourceElements(body, "RBRACE")
 
@@ -2783,14 +2783,6 @@ class Parser:
 
     return stmt
 
-"""
-scanner = Scanner(sys.stdin.read())
-while scanner.peek() != "EOS":
-  scanner.Next()
-  print scanner.current.token + "=" + scanner.current.literal_string
-
-"""
-
 class AstVisitor:
   def Visit(self, node):
     node.Accept(self)
@@ -2799,9 +2791,10 @@ class Printer(AstVisitor):
   def __init__(self, print_types = False):
     self.print_types = print_types
     self.nest = 0
+    self.buffer = ""
 
   def W(self, str):
-    sys.stdout.write(str)
+    self.buffer += str
 
   def NewlineAndIndent(self):
     self.W("\n")
@@ -2856,10 +2849,15 @@ class Printer(AstVisitor):
       self.Visit(declarations[i])
 
   def PrintStatements(self, statements):
+    changed = True
     for i in range(0, len(statements)):
-      self.NewlineAndIndent()
+      if changed:
+        self.NewlineAndIndent()
+      old_len = len(self.buffer)
       self.Visit(statements[i])
-      self.W(";")
+      changed = old_len < len(self.buffer)
+      if changed:
+        self.W(";")
 
   def PrintFunctionLiteral(self, function):
     self.W("function ")
@@ -2913,8 +2911,6 @@ class Printer(AstVisitor):
   def VisitReturnStatement(self, node):
     self.W("return ")
     self.Visit(node.expression)
-    self.W(";")
-    self.NewlineAndIndent()
 
   def VisitConditional(self, node):
     self.Visit(node.condition)
@@ -2924,11 +2920,11 @@ class Printer(AstVisitor):
     self.Visit(node.else_expression)
 
   def VisitCompareOperation(self, node):
-    sys.stdout.write("(")
+    self.W("(")
     self.Visit(node.left)
     self.W(String(node.op))
     self.Visit(node.right)
-    sys.stdout.write(")")
+    self.W(")")
 
   def VisitIfStatement(self, node):
     self.W("if (")
@@ -2972,6 +2968,7 @@ class Printer(AstVisitor):
   def PrintLn(self, node):
     self.Visit(node)
     self.W("\n")
+    sys.stdout.write(self.buffer)
 
 ###############
 # 1, 2 Allocate type variables, and seed them
