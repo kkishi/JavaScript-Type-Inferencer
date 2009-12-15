@@ -88,7 +88,8 @@ tokens = [
   # Assignment operators.
   # IsAssignmentOp() relies on this block of enum values
   # being contiguous and sorted in the same order!
-  ("INIT_VAR", "=init_var", 2),  # AST-use only.
+#  ("INIT_VAR", "=init_var", 2),  # AST-use only.
+  ("INIT_VAR", "=", 2),  # AST-use only.
   ("INIT_CONST", "=init_const", 2),  # AST-use only.
   ("ASSIGN", "=", 2),
   ("ASSIGN_BIT_OR", "|=", 2),
@@ -216,11 +217,6 @@ def IndexOf(op):
       return ret
     ret = ret + 1
 
-class TokenDesc:
-  token = ""
-  location = 0
-  literal_buffer = ""
-
 class KeywordMatcher:
   def __init__(self):
     self.buffer = ""
@@ -233,214 +229,249 @@ class KeywordMatcher:
     return "IDENTIFIER"
 
 class Scanner:
-  current = TokenDesc()
-  next = TokenDesc()
+  class Location:
+    def __init__(self, b = 0, e = 0):
+      self.beg_pos = b
+      self.end_pos = e
+
+  class TokenDesc:
+    def __init__(self):
+      self.token = "ILLEGAL"
+      self.location = Scanner.Location()
+      self.literal_buffer = ""
 
   def __init__(self, source, position = 0):
-    self.source = source
-    self.position = position
-    self.c0 = source[0]
+    self.source_ = source
+    self.position_ = position
+
+    # Set c0_ (one character ahead)
+    self.Advance()
+
+    self.current_ = Scanner.TokenDesc()
+    self.next_ = Scanner.TokenDesc()
+
+    # Skip initial whitespace allowing HTML comment ends just like
+    # after a newline and scan first token.
+    self.has_line_terminator_before_next_ = True
     self.SkipWhiteSpace()
     self.Scan()
 
   def peek(self):
-    return self.next.token
+    return self.next_.token
 
   def Next(self):
-    self.current = copy.copy(self.next)
+    self.current_ = copy.copy(self.next_)
     self.Scan()
-    return self.current.token
+    return self.current_.token
 
   def literal_string(self):
-    return self.current.literal_string
+    return self.current_.literal_string
+
+  def source_pos(self):
+    return self.position_
+
+  def location(self):
+    return self.current_.location
+
+  def has_line_terminator_before_next(self):
+    return self.has_line_terminator_before_next_
 
   def Select(self, tok):
     self.Advance()
     return tok
 
   def Scan(self):
+    self.next_.literal_buffer = ""
     token = "WHITESPACE"
+    self.has_line_terminator_before_next_ = False
     while token == "WHITESPACE":
+      # Remember the position of the next token
+      self.next_.location.beg_pos = self.source_pos()
+
       # Continue scanning for tokens as long as we're just skipping
       # whitespace.
 
-      if self.c0 == ' ' or self.c0 == '\t':
+      if self.c0_ == ' ' or self.c0_ == '\t':
         self.Advance()
         token = "WHITESPACE"
 
-      elif self.c0 == '\n':
+      elif self.c0_ == '\n':
         self.Advance()
+        self.has_line_terminator_before_next_ = True
         token = "WHITESPACE"
 
-      elif self.c0 == '"' or self.c0 == '\'':
+      elif self.c0_ == '"' or self.c0_ == '\'':
         token = self.ScanString()
 
-      elif self.c0 == '<':
+      elif self.c0_ == '<':
         # < <= << <<= <!--
         self.Advance()
-        if self.c0 == '=':
+        if self.c0_ == '=':
           token = self.Select("LTE")
-        elif self.c0 == '<':
+        elif self.c0_ == '<':
           token = self.Select("=", "ASSIGN_SHL", "SHL")
+#        } else if (c0_ == '!') {
+#          token = ScanHtmlComment();
         else:
           token = "LT"
 
-      elif self.c0 == '>':
+      elif self.c0_ == '>':
         # > >= >> >>= >>> >>>=
         self.Advance()
-        if self.c0 == '=':
+        if self.c0_ == '=':
           token = self.Select("GTE")
-        elif self.c0 == '>':
+        elif self.c0_ == '>':
           # >> >>= >>> >>>=
           self.Advance()
-          if self.c0 == '=':
+          if self.c0_ == '=':
             token = self.Select("ASSIGN_SAR")
-          elif self.c0 == '>':
+          elif self.c0_ == '>':
             token = self.Select('=', "ASSIGN_SHR", "SHR")
           else:
             token = "SAR";
         else:
           token = "GT"
 
-      elif self.c0 == '=':
+      elif self.c0_ == '=':
         self.Advance()
-        if self.c0 == '=':
+        if self.c0_ == '=':
           token = self.Select('=', "EQ_STRICT", "EQ")
         else:
           token = "ASSIGN"
 
-      elif self.c0 == '!':
+      elif self.c0_ == '!':
         self.Advance()
-        if self.c0 == '=':
+        if self.c0_ == '=':
           token = self.Select('=', "NE_STRICT", "NE")
         else:
           token = "NOT"
 
-      elif self.c0 == '+':
+      elif self.c0_ == '+':
         # + ++ +=
         self.Advance()
-        if self.c0 == '+':
+        if self.c0_ == '+':
           token = self.Select("INC")
-        elif self.c0 == '=':
+        elif self.c0_ == '=':
           token = self.Select("ASSIGN_ADD")
         else:
           token = "ADD"
 
-      elif self.c0 == '-':
+      elif self.c0_ == '-':
         # - -- --> -=
         self.Advance()
-        if self.c0 == '-':
+        if self.c0_ == '-':
           token = self.Select("DEC")
-        elif self.c0 == '=':
+        elif self.c0_ == '=':
           token = self.Select("ASSIGN_SUB")
         else:
           token = "SUB"
 
-      elif self.c0 == '*':
+      elif self.c0_ == '*':
         # * *=
         token = self.Select('=', "ASSIGN_MUL", "MUL")
 
-      elif self.c0 == '%':
+      elif self.c0_ == '%':
         # % %=
         token = self.Select('=', "ASSIGN_MOD", "MOD")
 
-      elif self.c0 == '/':
+      elif self.c0_ == '/':
         # /  // /* /=
         self.Advance();
-        if self.c0 == '/':
+        if self.c0_ == '/':
           token = self.SkipSingleLineComment()
-        elif self.c0 == '*':
+        elif self.c0_ == '*':
           token = self.SkipMultiLineComment()
-        elif self.c0 == '=':
+        elif self.c0_ == '=':
           token = self.Select("ASSIGN_DIV")
         else:
           token = "DIV"
 
-      elif self.c0 == '&':
+      elif self.c0_ == '&':
         # & && &=
         self.Advance()
-        if self.c0 == '&':
+        if self.c0_ == '&':
           token = self.Select("AND")
-        elif self.c0 == '=':
+        elif self.c0_ == '=':
           token = self.Select("ASSIGN_BIT_AND")
         else:
           token = "BIT_AND"
 
-      elif self.c0 == '|':
+      elif self.c0_ == '|':
         # | || |=
         self.Advance()
-        if self.c0 == '|':
+        if self.c0_ == '|':
           token = self.Select("OR")
-        elif self.c0 == '=':
+        elif self.c0_ == '=':
           token = self.Select("ASSIGN_BIT_OR")
         else:
           token = "BIT_OR"
 
-      elif self.c0 == '^':
+      elif self.c0_ == '^':
         # ^ ^=
         token = self.Select('=', "ASSIGN_BIT_XOR", "BIT_XOR")
 
-      elif self.c0 == '.':
+      elif self.c0_ == '.':
         # . Number
         self.Advance();
-        if IsDecimalDigit(self.c0):
-          token = self.ScanNumber(true)
+        if IsDecimalDigit(self.c0_):
+          token = self.ScanNumber(True)
         else:
           token = "PERIOD"
 
-      elif self.c0 == ':':
+      elif self.c0_ == ':':
         token = self.Select("COLON")
 
-      elif self.c0 == ';':
+      elif self.c0_ == ';':
         token = self.Select("SEMICOLON")
 
-      elif self.c0 == ',':
+      elif self.c0_ == ',':
         token = self.Select("COMMA")
 
-      elif self.c0 == '(':
+      elif self.c0_ == '(':
         token = self.Select("LPAREN")
 
-      elif self.c0 == ')':
+      elif self.c0_ == ')':
         token = self.Select("RPAREN")
 
-      elif self.c0 == '[':
+      elif self.c0_ == '[':
         token = self.Select("LBRACK")
 
-      elif self.c0 == ']':
+      elif self.c0_ == ']':
         token = self.Select("RBRACK")
 
-      elif self.c0 == '{':
+      elif self.c0_ == '{':
         token = self.Select("LBRACE")
 
-      elif self.c0 == '}':
+      elif self.c0_ == '}':
         token = self.Select("RBRACE")
 
-      elif self.c0 == '?':
+      elif self.c0_ == '?':
         token = self.Select("CONDITIONAL")
 
-      elif self.c0 == '~':
+      elif self.c0_ == '~':
         token = self.Select("BIT_NOT")
 
       else:
-        if IsIdentifierStart(self.c0):
+        if IsIdentifierStart(self.c0_):
           token = self.ScanIdentifier()
-        elif IsDecimalDigit(self.c0):
+        elif IsDecimalDigit(self.c0_):
           token = self.ScanNumber(False)
         elif self.SkipWhiteSpace():
           token = "WHITESPACE"
-        elif self.c0 == EOF:
+        elif self.c0_ == EOF:
           token = "EOS"
         else:
           token = self.Select("ILLEGAL")
 
-    self.next.token = token
+    self.next_.location.end_pos = self.source_pos()
+    self.next_.token = token
 
   def ScanDecimalDigits(self):
-    while IsDecimalDigit(self.c0):
+    while IsDecimalDigit(self.c0_):
       self.AddCharAdvance()
 
   def ScanNumber(self, seen_period):
-    assert(IsDecimalDigit(self.c0))
+    assert(IsDecimalDigit(self.c0_))
 
     DECIMAL = 0
     HEX = 1
@@ -454,46 +485,46 @@ class Scanner:
       self.ScanDecimalDigits()  # we know we have at least one digit
     else:
       # if the first character is '0' we must check for octals and hex
-      if self.c0 == '0':
+      if self.c0_ == '0':
         self.AddCharAdvance()
 
         # either 0, 0exxx, 0Exxx, 0.xxx, an octal number, or a hex number
-        if self.c0 == 'x' or self.c0 == 'X':
+        if self.c0_ == 'x' or self.c0_ == 'X':
           kind = HEX
           self.AddCharAdvance()
-          if not IsHexDigit(self.c0):
+          if not IsHexDigit(self.c0_):
             return "ILLEGAL"
-          while IsHexDigit(self.c0):
+          while IsHexDigit(self.c0_):
             self.AddCharAdvance()
 
-        elif ord('0') <= ord(self.c0) and ord(self.c0) <= ord('7'):
+        elif ord('0') <= ord(self.c0_) and ord(self.c0_) <= ord('7'):
           # (possible) octal number
           kind = OCTAL
           while True:
-            if self.c0 == '8' or self.c0 == '9':
+            if self.c0_ == '8' or self.c0_ == '9':
               kind = DECIMAL
               break
-            if ord(self.c0) < ord('0') or ord('7') < ord(self.c0):
+            if ord(self.c0_) < ord('0') or ord('7') < ord(self.c0_):
               break
             self.AddCharAdvance()
 
       # Parse decimal digits and allow trailing fractional part.
       if kind == DECIMAL:
         self.ScanDecimalDigits()  # optional
-        if self.c0 == '.':
+        if self.c0_ == '.':
           self.AddCharAdvance()
           self.ScanDecimalDigits()  # optional
 
     # scan exponent, if any
-    if self.c0 == 'e' or self.c0 == 'E':
+    if self.c0_ == 'e' or self.c0_ == 'E':
       assert(kind != HEX)  # 'e'/'E' must be scanned as part of the hex number
       if kind == OCTAL:
         return "ILLEGAL"  # no exponent for octals allowed
       # scan exponent
       self.AddCharAdvance()
-      if self.c0 == '+' or self.c0 == '-':
+      if self.c0_ == '+' or self.c0_ == '-':
         self.AddCharAdvance()
-      if not IsDecimalDigit(self.c0):
+      if not IsDecimalDigit(self.c0_):
         # we must have at least one decimal digit after 'e'/'E'
         return "ILLEGAL"
       self.ScanDecimalDigits()
@@ -502,44 +533,52 @@ class Scanner:
     # not be an identifier start or a decimal digit; see ECMA-262
     # section 7.8.3, page 17 (note that we read only one decimal digit
     # if the value is 0).
-    if IsDecimalDigit(self.c0) or IsIdentifierStart(self.c0):
+    if IsDecimalDigit(self.c0_) or IsIdentifierStart(self.c0_):
       return "ILLEGAL"
 
     return "NUMBER"
 
   def ScanString(self):
-    quote = self.c0
+    quote = self.c0_
     self.Advance()
 
     self.StartLiteral()
-    while self.c0 != quote and self.c0 != EOF and not IsLineTerminator(self.c0):
-      c = self.c0
+    while self.c0_ != quote and self.c0_ != EOF and not IsLineTerminator(self.c0_):
+      c = self.c0_
       self.Advance()
       if c == '\\':
-        if self.c0 == EOF:
+        if self.c0_ == EOF:
           return "ILLEGAL"
         ScanEscape()
       else:
         self.AddChar(c)
 
-    if self.c0 != quote:
+    if self.c0_ != quote:
       return "ILLEGAL"
 
     self.Advance()  # consume quote
     return "STRING"
 
   def Advance(self):
-    self.position += 1
-    if self.position >= len(self.source):
-      self.c0 = EOF
+    if self.position_ == len(self.source_):
+      self.c0_ = EOF
     else:
-      self.c0 = self.source[self.position]
+      self.c0_ = self.source_[self.position_]
+      self.position_ += 1
 
   def SkipWhiteSpace(self):
-    start_position = self.position
-    while self.c0.isspace():
-      self.Advance()
-    return start_position != self.position
+    start_position = self.source_pos()
+
+    while True:
+      while self.c0_.isspace():
+        # IsWhiteSpace() includes line terminators!
+        if IsLineTerminator(self.c0_):
+          # Ignore line terminators, but remember them. This is necessary
+          # for automatic semicolon insertion.
+          self.has_line_terminator_before_next_ = True
+        self.Advance()
+      # Return whether or not we skipped any characters.
+      return self.source_pos() != start_position
 
   def SkipSingleLineComment(self):
     self.Advance()
@@ -548,16 +587,16 @@ class Scanner:
     # separately by the lexical grammar and becomes part of the
     # stream of input elements for the syntactic grammar (see
     # ECMA-262, section 7.4, page 12).
-    while self.c0 != EOF and not IsLineTerminator(self.c0):
+    while self.c0_ != EOF and not IsLineTerminator(self.c0_):
       self.Advance()
     return "WHITESPACE"
 
   def SkipMultiLineComment(self):
-    assert(self.c0 == '*')
+    assert(self.c0_ == '*')
     self.Advance()
 
-    while self.c0 != EOF:
-      ch = self.c0
+    while self.c0_ != EOF:
+      ch = self.c0_
       self.Advance()
       # If we have reached the end of the multi-line comment, we
       # consume the '/' and insert a whitespace. This way all
@@ -566,43 +605,43 @@ class Scanner:
       # 7.4, page 12, that says that multi-line comments containing
       # line terminators should be treated as a line terminator, but it
       # matches the behaviour of SpiderMonkey and KJS.
-      if ch == '*' and self.c0 == '/':
-        self.c0 = ' '
+      if ch == '*' and self.c0_ == '/':
+        self.c0_ = ' '
         return "WHITESPACE"
 
     # Unterminated multi-line comment.
     return "ILLEGAL"
 
   def StartLiteral(self):
-    self.next.literal_string = ""
+    self.next_.literal_string = ""
 
   def AddChar(self, c):
-    self.next.literal_string += c
+    self.next_.literal_string += c
 
   def AddCharAdvance(self):
-    self.AddChar(self.c0)
+    self.AddChar(self.c0_)
     self.Advance()
 
   def ScanIdentifier(self):
-    assert(IsIdentifierStart(self.c0))
+    assert(IsIdentifierStart(self.c0_))
 
     self.StartLiteral()
     keyword_match = KeywordMatcher()
 
-    if self.c0 == '\\':
+    if self.c0_ == '\\':
       assert(False)
     else:
-      self.AddChar(self.c0)
-      keyword_match.AddChar(self.c0)
+      self.AddChar(self.c0_)
+      keyword_match.AddChar(self.c0_)
       self.Advance()
 
     # Scan the rest of the identifier characters.
-    while IsIdentifierPart(self.c0):
-      if self.c0 == '\\':
+    while IsIdentifierPart(self.c0_):
+      if self.c0_ == '\\':
         assert(False)
       else:
-        self.AddChar(self.c0)
-        keyword_match.AddChar(self.c0)
+        self.AddChar(self.c0_)
+        keyword_match.AddChar(self.c0_)
         self.Advance()
 
     return keyword_match.token()
@@ -795,10 +834,6 @@ class Type:
   NULL = 5
   UNKNOWN = 10
 
-  def __init__(self):
-    self.types = []
-    self.constraints = []
-
   @staticmethod
   def ToString(type):
     for T in ((Type.INT, "INT"), (Type.FLOAT, "FLOAT"), (Type.BOOL, "BOOL"),
@@ -808,16 +843,23 @@ class Type:
         return T[1]
     assert(False)
 
+class TypeNode:
+  def __init__(self):
+    self.types = []
+    self.constraints = []
+
   def AddEdge(self, target):
     self.constraints.append(target)
-    self.Propagate()
 
   def Propagate(self):
+    ret = False
     for constraint in self.constraints:
       for type in self.types:
         if not type in constraint.types:
+          ret = True
           constraint.types.append(type);
           constraint.Propagate()
+    return ret
 
 class AstNode:
   def Accept(self): assert(False)
@@ -1888,9 +1930,36 @@ class Parser:
   def Next(self):
     return self.scanner.Next()
 
+  def ReportError(self, expected):
+    print "%s expected but %s comes." % (expected, self.scanner.current_.token)
+#    loc = self.scanner.location().beg_pos
+#    for line in self.scanner.source_.split('\n'):
+#      if 0 <= loc and loc <= len(line):
+#        print(line)
+#        print(' ' * (loc - 1) + '^ here is wrong.')
+#        loc = -1
+#      else:
+#        print(line)
+#        loc -= len(line)
+
   def Expect(self, token):
     next = self.Next()
-    assert(next == token)
+    if next != token:
+      self.ReportError(token)
+      assert(next == token)
+
+  def ExpectSemicolon(self):
+    # Check for automatic semicolon insertion according to
+    # the rules given in ECMA-262, section 7.9, page 21.
+    tok = self.peek()
+    if tok == "SEMICOLON":
+      self.Next()
+      return
+    if self.scanner.has_line_terminator_before_next_ or \
+          tok == "RBRACE" or \
+          tok == "EOS":
+      return
+    self.Expect("SEMICOLON")
 
   def Consume(self, token):
     next = self.Next()
@@ -1906,6 +1975,9 @@ class Parser:
     result = Scope(parent, type)
     result.Initialize(inside_with)
     return result
+
+  def GetLiteralUndefined(self):
+    return JSUNDEFINED
 
   def Declare(self, name, mode, fun, resolve):
     var = None
@@ -2129,7 +2201,7 @@ class Parser:
     # VariableStatement ::
     #   VariableDeclarations ';'
     result = self.ParseVariableDeclarations(True, None)
-    self.Expect("SEMICOLON")
+    self.ExpectSemicolon()
     return result
 
   # If the variable declaration declares exactly one non-const
@@ -2490,7 +2562,7 @@ class Parser:
     #   LeftHandSideExpression ('++' | '--')?
 
     expression = self.ParseLeftHandSideExpression()
-    if IsCountOp(self.peek()):
+    if not self.scanner.has_line_terminator_before_next() and IsCountOp(self.peek()):
       # Signal a reference error if the expression is an invalid
       # left-hand side expression.  We could report this as a syntax
       # error here but for compatibility with JSC we choose to report the
@@ -2672,10 +2744,10 @@ class Parser:
 
     tok = self.peek()
     if tok == "SEMICOLON" or tok == "RBRACE" or tok == "EOS":
-      return ReturnStatement(GetLiteralUndefined())
+      return ReturnStatement(self.GetLiteralUndefined())
 
     expr = self.ParseExpression(True)
-    self.Expect("SEMICOLON")
+    self.ExpectSemicolon()
     return ReturnStatement(expr)
 
   def ParseExpressionOrLabelledStatement(self, labels):
@@ -2690,7 +2762,7 @@ class Parser:
       assert(False)  # NOTE(keisuke): short cut
 
     # Parsed expression statement.
-    self.Expect("SEMICOLON")
+    self.ExpectSemicolon()
     return ExpressionStatement(expr)
 
   def ParseIfStatement(self, labels):
@@ -2966,20 +3038,28 @@ class Printer(AstVisitor):
     self.Visit(node.value)
 
   def PrintLn(self, node):
-    self.Visit(node)
-    self.W("\n")
-    sys.stdout.write(self.buffer)
+    try:
+      self.Visit(node)
+      self.W("\n")
+      sys.stdout.write(self.buffer)
+    except Exception:
+      print self.buffer
+      raise
 
 ###############
 # 1, 2 Allocate type variables, and seed them
 class Seeder(AstVisitor):
+  def __init__(self, nodes):
+    self.nodes = nodes
+
   def NotSeen(self):
     return False
 
   def Allocate(self, node):
     if node.NotSeen():
       node.NotSeen = self.NotSeen
-      node.__type__ = Type()
+      node.__type__ = TypeNode()
+      self.nodes.append(node.__type__)
 
   def Seed(self, node, type):
     node.__type__.types.append(type)
@@ -2998,12 +3078,11 @@ class Seeder(AstVisitor):
       self.Visit(stmt)
 
   def VisitDeclaration(self, node):
-    self.Allocate(node)
-
     self.Visit(node.proxy)
+    if node.fun != None:
+      self.Visit(node.fun)
 
   def VisitVariableProxy(self, node):
-    #self.Allocate(node)
     self.Visit(node.var)
 
   def VisitVariable(self, node):
@@ -3052,9 +3131,6 @@ class Seeder(AstVisitor):
       self.Visit(stmt)
 
   def VisitAssignment(self, node):
-    #print(node.target.var.name.value)
-    #print(node.target.var)
-    #self.Visit(node.target)
     self.Visit(node.target.var)
     self.Visit(node.value)
     node.value.__type__.AddEdge(node.target.var.__type__)
@@ -3077,12 +3153,22 @@ class Seeder(AstVisitor):
     if node.HasElseStatement():
       self.Visit(node.else_statement)
 
+def Propagate(nodes):
+  while True:
+    changed = False
+    for node in nodes:
+      changed = changed or node.Propagate()
+    if not changed:
+      break
+
 def main():
   scanner = Scanner(sys.stdin.read())
   parser = Parser(scanner)
   ast = parser.ParseProgram(True)
 
-  Seeder().Visit(ast)
+  nodes = []
+  Seeder(nodes).Visit(ast)
+  Propagate(nodes)
   Printer(True).PrintLn(ast)
 
 if __name__ == "__main__":
