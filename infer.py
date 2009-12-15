@@ -1835,7 +1835,10 @@ class LexicalScope:
         self.prev_scope = parser.top_scope
         parser.top_scope = scope
 
-    def __del__(self):
+    def __enter__(self):
+        return
+
+    def __exit__(self, *e):
         if self.activated:
             self.activated = False
             self.parser.top_scope = self.prev_scope
@@ -1846,7 +1849,10 @@ class TargetScope:
         self.previous = parser.target_stack
         parser.target_stack = None
 
-    def __del__(self):
+    def __enter__(self):
+        return
+
+    def __exit__(self, *e):
         self.parser.target_stack = self.previous
 
 class Parser:
@@ -1994,18 +2000,17 @@ class Parser:
         type = Scope.GLOBAL_SCOPE if in_global_context else Scope.EVAL_SCOPE
         no_name = JSObject("string", "")
 
-        result = None
+        result = [None]
         scope = self.NewScope(self.top_scope, type, self.inside_with())
-        lexical_scope = LexicalScope(self, scope)
-        body = []
-        self.ParseSourceElements(body, "EOS")
-        result = FunctionLiteral(no_name, self.top_scope, body, 0, False)
-        lexical_scope.__del__()
+        with LexicalScope(self, scope) as lexical_scope:
+            body = []
+            self.ParseSourceElements(body, "EOS")
+            result[0] = FunctionLiteral(no_name, self.top_scope, body, 0, False)
 
-        top = result.scope
+        top = result[0].scope
         top.AllocateVariables(None)
 
-        return result
+        return result[0]
 
     def ParseSourceElements(self, processor, end_token):
         # SourceElements ::
@@ -2015,16 +2020,15 @@ class Parser:
         # elements. This way, all scripts and functions get their own
         # target stack thus avoiding illegal breaks and continues across
         # functions.
-        scope = TargetScope(self)
+        with TargetScope(self) as scope:
 
-        assert(processor != None)
-        while self.peek() != end_token:
-            stat = self.ParseStatement(None)
-            if stat == None or stat.IsEmpty():
-                continue
-            processor.append(stat)
+            assert(processor != None)
+            while self.peek() != end_token:
+                stat = self.ParseStatement(None)
+                if stat == None or stat.IsEmpty():
+                    continue
+                processor.append(stat)
 
-        scope.__del__()
         return 0
 
     def ParseFunctionLiteral(self, var_name, type):
@@ -2047,50 +2051,49 @@ class Parser:
         # Parse function body.
         type = Scope.FUNCTION_SCOPE
         scope = self.NewScope(self.top_scope, type, self.inside_with())
-        lexical_scope = LexicalScope(self, scope)
-        self.top_scope.SetScopeName(name)
+        function_literal = [None]
+        with LexicalScope(self, scope) as lexical_scope:
+            self.top_scope.SetScopeName(name)
 
-        #  FormalParameterList ::
-        #    '(' (Identifier)*[','] ')'
-        self.Expect("LPAREN")
-        done = (self.peek() == "RPAREN")
-        while not done:
-            param_name = self.ParseIdentifier()
-            self.top_scope.AddParameter(self.top_scope.DeclareLocal(param_name, Variable.VAR))
-            num_parameters += 1
-
+            #  FormalParameterList ::
+            #    '(' (Identifier)*[','] ')'
+            self.Expect("LPAREN")
             done = (self.peek() == "RPAREN")
-            if not done:
-                self.Expect("COMMA")
+            while not done:
+                param_name = self.ParseIdentifier()
+                self.top_scope.AddParameter(self.top_scope.DeclareLocal(param_name, Variable.VAR))
+                num_parameters += 1
 
-        self.Expect("RPAREN")
+                done = (self.peek() == "RPAREN")
+                if not done:
+                    self.Expect("COMMA")
 
-        self.Expect("LBRACE")
-        body = []
+            self.Expect("RPAREN")
 
-        # If we have a named function expression, we add a local variable
-        # declaration to the body of the function with the name of the
-        # function and let it refer to the function itself (closure).
-        # NOTE: We create a proxy and resolve it here so that in the
-        # future we can change the AST to only refer to VariableProxies
-        # instead of Variables and Proxis as is the case now.
-        if function_name != None and function_name.value != "":
-            fvar = self.top_scope.DeclareFunctionVar(function_name)
-            fproxy = self.top_scope.NewUnresolved(function_name, inside_with())
-            fproxy.BindTo(fvar)
-            body.append(ExpressionStatement(Assignment("INIT_VAR",
-                                                       fproxy, ThisFunction())))
+            self.Expect("LBRACE")
+            body = []
 
-        self.ParseSourceElements(body, "RBRACE")
+            # If we have a named function expression, we add a local variable
+            # declaration to the body of the function with the name of the
+            # function and let it refer to the function itself (closure).
+            # NOTE: We create a proxy and resolve it here so that in the
+            # future we can change the AST to only refer to VariableProxies
+            # instead of Variables and Proxis as is the case now.
+            if function_name != None and function_name.value != "":
+                fvar = self.top_scope.DeclareFunctionVar(function_name)
+                fproxy = self.top_scope.NewUnresolved(function_name, inside_with())
+                fproxy.BindTo(fvar)
+                body.append(ExpressionStatement(Assignment("INIT_VAR",
+                                                           fproxy, ThisFunction())))
 
-        self.Expect("RBRACE")
+            self.ParseSourceElements(body, "RBRACE")
 
-        function_literal = FunctionLiteral(name, self.top_scope, body,
-                                           num_parameters, function_name != "")
+            self.Expect("RBRACE")
 
-        lexical_scope.__del__()
+            function_literal[0] = FunctionLiteral(name, self.top_scope, body,
+                                                  num_parameters, function_name != "")
 
-        return function_literal
+        return function_literal[0]
 
     def ParseArguments(self):
         # Arguments ::
