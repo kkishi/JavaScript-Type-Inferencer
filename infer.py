@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import sys
 import copy
+from optparse import OptionParser
 
 EOF = chr(255)
 
@@ -276,9 +277,20 @@ class Scanner:
   def has_line_terminator_before_next(self):
     return self.has_line_terminator_before_next_
 
-  def Select(self, tok):
-    self.Advance()
-    return tok
+  def Select(self, *args):
+    def Select1(tok):
+      self.Advance()
+      return tok
+
+    def Select3(next, then, else_):
+      self.Advance()
+      if self.c0_ == next:
+        Advance()
+        return then
+      else:
+        return else_
+
+    return (Select1 if len(args) == 1 else Select3)(*args)
 
   def Scan(self):
     self.next_.literal_buffer = ""
@@ -704,6 +716,45 @@ class SmiAnalysis:
 # they are maintained by scopes, and referred to from VariableProxies and Slots
 # after binding and variable allocation.
 class Variable:
+  class UseCount:
+    def __init__(self):
+      self.nreads_ = 0
+      self.nwrites_ = 0
+
+    def RecordRead(self, weight):
+      assert(weight > 0)
+      self.nreads_ += weight
+      # We must have a positive nreads_ here. Handle
+      # any kind of overflow by setting nreads_ to
+      # some large-ish value.
+      if self.nreads_ <= 0: self.nreads_ = 1000000
+      assert(self.is_read() and self.is_used())
+
+    def RecordWrite(self, weight):
+      assert(weight > 0)
+      self.nwrites_ += weight
+      # We must have a positive nwrites_ here. Handle
+      # any kind of overflow by setting nwrites_ to
+      # some large-ish value.
+      if self.nwrites_ <= 0: self.nwrites_ = 1000000
+      assert(self.is_written() and self.is_used())
+
+    def RecordAccess(self, weight):
+      self.RecordRead(weight)
+      self.RecordWrite(weight)
+
+    def RecordUses(self, uses):
+      if uses.nreads() > 0: self.RecordRead(uses.nreads())
+      if uses.nwrites() > 0: self.RecordWrite(uses.nwrites())
+
+    def nreads(self): return self.nreads_
+    def nwrites(self): return self.nwrites_
+    def nuses(self): return self.nreads_ + self.nwrites_
+
+    def is_read(self): return self.nreads() > 0
+    def is_written(self): return self.nwrites() > 0
+    def is_used(self): return self.nuses() > 0
+
   #enum Mode {
   # User declared variables:
   VAR = 0             # declared via 'var', and 'function' declarations
@@ -743,6 +794,7 @@ class Variable:
     self.local_if_not_shadowed = None
     self.is_accessed_from_inner_scope = False
     self.rewrite = None
+    self.var_uses_ = Variable.UseCount()
     #ASSERT(name->IsSymbol());
 
   def Mode2String(mode):
@@ -779,9 +831,9 @@ class Variable:
   def is_accessed_from_inner_scope(self):
     return self.is_accessed_from_inner_scope
   def var_uses(self):
-    return self.var_uses
+    return self.var_uses_
   def obj_uses(self):
-    return self.obj_uses
+    return self.obj_uses_
 
   def IsVariable(self, n):
     return not self.is_this() and self.name.value == n.value
@@ -821,9 +873,6 @@ class Variable:
   # added by keisuke
   def Accept(self, v):
     v.VisitVariable(self)
-
-  def NotSeen(self):
-    return True
 
 class Type:
   INT = 0
@@ -884,8 +933,6 @@ class AstNode:
   def AsMaterializedLiteral(self): return None
   def AsObjectLiteral(self): return None
   def AsArrayLiteral(self): return None
-  #added by keisuke
-  def NotSeen(self): return True
 
 class Statement(AstNode):
   def AsStatement(self): return self
@@ -1520,9 +1567,25 @@ class Scope:
       (var.is_accessed_from_inner_scope or                     \
        self.scope_calls_eval or self.inner_scope_calls_eval or \
        self.scope_contains_with):
-      var.var_uses.RecordAccess(1)
+      var.var_uses().RecordAccess(1)
     # Global variables do not need to be allocated.
-      return not var.is_global() and var.var_uses.is_used()
+      return not var.is_global() and var.var_uses().is_used()
+
+  def MustAllocateInContext(self, var):
+    # If var is accessed from an inner scope, or if there is a
+    # possibility that it might be accessed from the current or an inner
+    # scope (through an eval() call), it must be allocated in the
+    # context.  Exception: temporary variables are not allocated in the
+    # context.
+    return \
+        var.mode != Variable.TEMPORARY and \
+        (var.is_accessed_from_inner_scope or
+         self.scope_calls_eval or self.inner_scope_calls_eval or
+         self.scope_contains_with or var.is_global())
+
+  def AllocateHeapSlot(self, var):
+    var.rewrite = Slot(var, Slot.CONTEXT, self.num_heap_slots)
+    self.num_heap_slots += 1
 
   def AllocateParameterLocals(self):
     assert(self.is_function_scope())
@@ -2332,6 +2395,7 @@ class Parser:
         # and add it to the initialization statement block. Note that
         # this function does different things depending on if we have
         # 1 or 2 parameters.
+        assert(False and "not implemented yet.")
         initialize = None
 #                if is_const:
 #                    initialize = CallRuntime(JSObject("string", "InitializeConstGlobal"),
@@ -2722,6 +2786,7 @@ class Parser:
     # If we're not allowing special syntax we fall-through to the
     # default case.
     else:
+      print(peek)
       assert(False)
 #            tok = peek();
       # Token::Peek returns the value of the next token but
@@ -3046,18 +3111,23 @@ class Printer(AstVisitor):
       print self.buffer
       raise
 
+#class TemplateRepository:
+#  def __init__(self, fun):
+#    self.repos = dict()
+#    self.fun = fun
+#  def Create(self, tuple):
+#    if not tuple in self.repos:
+#      1
+#    return self.repos[tuple]
+
 ###############
 # 1, 2 Allocate type variables, and seed them
 class Seeder(AstVisitor):
   def __init__(self, nodes):
     self.nodes = nodes
 
-  def NotSeen(self):
-    return False
-
   def Allocate(self, node):
-    if node.NotSeen():
-      node.NotSeen = self.NotSeen
+    if not '__type__' in dir(node):
       node.__type__ = TypeNode()
       self.nodes.append(node.__type__)
 
@@ -3081,6 +3151,7 @@ class Seeder(AstVisitor):
     self.Visit(node.proxy)
     if node.fun != None:
       self.Visit(node.fun)
+      node.fun.__type__.AddEdge(node.proxy.var.__type__)
 
   def VisitVariableProxy(self, node):
     self.Visit(node.var)
@@ -3162,6 +3233,11 @@ def Propagate(nodes):
       break
 
 def main():
+  myusage = "%prog [-p] < %file"
+  psr = OptionParser(usage = myusage)
+  psr.add_option('-p', action='store_true', dest='print_types')
+  (opts, args) = psr.parse_args(sys.argv)
+
   scanner = Scanner(sys.stdin.read())
   parser = Parser(scanner)
   ast = parser.ParseProgram(True)
@@ -3169,7 +3245,7 @@ def main():
   nodes = []
   Seeder(nodes).Visit(ast)
   Propagate(nodes)
-  Printer(True).PrintLn(ast)
+  Printer(opts.print_types).PrintLn(ast)
 
 if __name__ == "__main__":
   main()
