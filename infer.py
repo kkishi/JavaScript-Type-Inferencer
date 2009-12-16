@@ -965,7 +965,7 @@ class Expression(AstNode):
   def IsValidJSON(self): return False
   def IsValidLeftHandSide(self): return False
 
-  def MarkAsStatement(self): None  # do nothing
+  def MarkAsStatement(self): pass  # do nothing
 
   # Static type information for this expression.
   def type(self): return self.type
@@ -1186,8 +1186,8 @@ class Call(Expression):
   sentinel = None
 
   def __init__(self, expression, arguments):
-    self.expression = expression
-    self.arguments = arguments
+    self.expression_ = expression
+    self.arguments_ = arguments
 
   def Accept(self, v):
     v.VisitCall(self)
@@ -1196,9 +1196,9 @@ class Call(Expression):
     return self
 
   def expression(self):
-    return self.expression
+    return self.expression_
   def arguments(self):
-    return self.arguments
+    return self.arguments_
   def position(self):
     return self.pos
 
@@ -1357,13 +1357,13 @@ class Assignment(Expression):
 
 class FunctionLiteral(Expression):
   def __init__(self, name, scope, body, num_parameters, is_expression):
-    self.name = name
-    self.scope = scope
-    self.body = body
-    self.num_parameters = num_parameters
-    self.is_expression = is_expression
-    self.loop_nesting = 0
-    self.inferred_name = ""
+    self.name_ = name
+    self.scope_ = scope
+    self.body_ = body
+    self.num_parameters_ = num_parameters
+    self.is_expression_ = is_expression
+    self.loop_nesting_ = 0
+    self.inferred_name_ = JSObject("string", "")
     self.try_fast_codegen_ = False
 
   def Accept(self, v):
@@ -1373,24 +1373,26 @@ class FunctionLiteral(Expression):
     return self
 
   def name(self):
-    return self.name
+    return self.name_
+  def scope(self):
+    return self.scope_;
   def body(self):
-    return self.body
+    return self.body_
   def is_expression(self):
-    return self.is_expression
+    return self.is_expression_
 
   def num_parameters(self):
-    return self.num_parameters
+    return self.num_parameters_
 
   def loop_nesting(self):
-    return self.loop_nesting
+    return self.loop_nesting_
   def set_loop_nesting(self, nesting):
-    self.loop_nesting = nesting
+    self.loop_nesting_ = nesting
 
   def inferred_name(self):
-    return self.inferred_name
+    return self.inferred_name_
   def set_inferred_name(self, inferred_name):
-    self.inferred_name = inferred_name
+    self.inferred_name_ = inferred_name
 
 class ThisFunction(Expression):
   def Accept(self, v):
@@ -2142,7 +2144,7 @@ class Parser:
       self.ParseSourceElements(body, "EOS")
       result[0] = FunctionLiteral(no_name, self.top_scope, body, 0, False)
 
-    top = result[0].scope
+    top = result[0].scope()
     top.AllocateVariables(None)
 
     return result[0]
@@ -2263,7 +2265,9 @@ class Parser:
   def ParseVariableStatement(self):
     # VariableStatement ::
     #   VariableDeclarations ';'
-    result = self.ParseVariableDeclarations(True, None)
+
+    dummy = [0]
+    result = self.ParseVariableDeclarations(True, dummy)
     self.ExpectSemicolon()
     return result
 
@@ -2352,6 +2356,7 @@ class Parser:
       # Declare() call above).
 
       value = None
+      position = -1
       if self.peek() == "ASSIGN":
         self.Expect("ASSIGN")
         value = self.ParseAssignmentExpression(accept_IN)
@@ -2428,8 +2433,13 @@ class Parser:
 
     if not is_const and nvars == 1:
       # We have a single, non-const variable.
-      assert(last_var != None)
-      var = last_var
+      if False: #if (is_pre_parsing_) {
+        # If we're preparsing then we need to set the var to something
+        # in order for for-in loops to parse correctly.
+        var[0] = ValidLeftHandSideSentinel.instance()
+      else:
+        assert(last_var != None)
+        var[0] = last_var
 
     return block
 
@@ -2998,12 +3008,12 @@ class Printer(AstVisitor):
 
   def PrintFunctionLiteral(self, function):
     self.W("function ")
-    self.PrintLiteral(function.name, False)
-    self.PrintParameters(function.scope)
+    self.PrintLiteral(function.name(), False)
+    self.PrintParameters(function.scope())
     self.W(" { ")
     self.nest += 1
-    self.PrintDeclarations(function.scope.declarations())
-    self.PrintStatements(function.body)
+    self.PrintDeclarations(function.scope().declarations())
+    self.PrintStatements(function.body())
     self.nest -= 1
     self.NewlineAndIndent()
     self.W("}")
@@ -3019,9 +3029,9 @@ class Printer(AstVisitor):
     self.Visit(node.expression)
 
   def VisitCall(self, node):
-    self.Visit(node.expression)
+    self.Visit(node.expression())
     self.W("(")
-    self.PrintArguments(node.arguments)
+    self.PrintArguments(node.arguments())
     self.W(")")
 
   def VisitVariableProxy(self, node):
@@ -3111,14 +3121,14 @@ class Printer(AstVisitor):
       print self.buffer
       raise
 
-#class TemplateRepository:
-#  def __init__(self, fun):
-#    self.repos = dict()
-#    self.fun = fun
-#  def Create(self, tuple):
-#    if not tuple in self.repos:
-#      1
-#    return self.repos[tuple]
+class TemplateRepository:
+  def __init__(self, fun):
+    self.repos = dict()
+    self.fun = fun
+  def Create(self, tuple):
+    if not tuple in self.repos:
+      assert(False)
+    return self.repos[tuple]
 
 ###############
 # 1, 2 Allocate type variables, and seed them
@@ -3129,6 +3139,8 @@ class Seeder(AstVisitor):
   def Allocate(self, node):
     if not '__type__' in dir(node):
       node.__type__ = TypeNode()
+      if isinstance(node, FunctionLiteral):
+        node.__repos__ = TemplateRepository(node)
       self.nodes.append(node.__type__)
 
   def Seed(self, node, type):
@@ -3138,13 +3150,13 @@ class Seeder(AstVisitor):
     self.Allocate(node)
     self.Seed(node, Type.FUNCTION)
 
-    for i in range(0, node.scope.num_parameters()):
-      self.Visit(node.scope.parameter(i))
+    for i in range(0, node.scope().num_parameters()):
+      self.Visit(node.scope().parameter(i))
 
-    for decl in node.scope.declarations():
+    for decl in node.scope().declarations():
       self.Visit(decl)
 
-    for stmt in node.body:
+    for stmt in node.body():
       self.Visit(stmt)
 
   def VisitDeclaration(self, node):
@@ -3165,9 +3177,9 @@ class Seeder(AstVisitor):
   def VisitCall(self, node):
     self.Allocate(node)
 
-    self.Visit(node.expression)
+    self.Visit(node.expression())
 
-    for arg in node.arguments:
+    for arg in node.arguments():
       self.Visit(arg)
 
   def VisitBinaryOperation(self, node):
@@ -3176,8 +3188,8 @@ class Seeder(AstVisitor):
     self.Visit(node.left)
     self.Visit(node.right)
 
-    (node.left.var if node.left.AsVariableProxy() else node.left).__type__.AddEdge(node.__type__)
-    (node.right.var if node.right.AsVariableProxy() else node.right).__type__.AddEdge(node.__type__)
+    (node.left.var if isinstance(node.left, VariableProxy) else node.left).__type__.AddEdge(node.__type__)
+    (node.right.var if isinstance(node.right, VariableProxy) else node.right).__type__.AddEdge(node.__type__)
 
   def VisitExpressionStatement(self, node):
     self.Allocate(node)
@@ -3233,11 +3245,13 @@ def Propagate(nodes):
       break
 
 def main():
+  # parse commandline options
   myusage = "%prog [-p] < %file"
   psr = OptionParser(usage = myusage)
   psr.add_option('-p', action='store_true', dest='print_types')
   (opts, args) = psr.parse_args(sys.argv)
 
+  # create AST
   scanner = Scanner(sys.stdin.read())
   parser = Parser(scanner)
   ast = parser.ParseProgram(True)
@@ -3245,6 +3259,7 @@ def main():
   nodes = []
   Seeder(nodes).Visit(ast)
   Propagate(nodes)
+
   Printer(opts.print_types).PrintLn(ast)
 
 if __name__ == "__main__":
