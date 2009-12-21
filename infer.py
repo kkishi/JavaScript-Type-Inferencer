@@ -36,187 +36,227 @@ def IsLineTerminator(c):
 def IsIdentifierPart(c):
   return IsIdentifierStart(c) or IsDecimalDigit(c) or c == '_';
 
-def IsAssignmentOp(op):
-  iop = IndexOf(op)
-  return IndexOf("INIT_VAR") <= iop and iop <= IndexOf("ASSIGN_MOD")
 
-def IsUnaryOp(op):
-  iop = IndexOf(op)
-  return IndexOf("NOT") <= iop and iop <= IndexOf("VOID") or \
-    op == "ADD" or op == "SUB"
+class Token:
+  tokens_ = [
+    # End of source indicator.
+    ("EOS", "EOS", 0),
 
-def IsCountOp(op):
-  return op == "INC" or op == "DEC"
+    # Punctuators (ECMA-262, section 7.7, page 15).
+    ("LPAREN", "(", 0),
+    ("RPAREN", ")", 0),
+    ("LBRACK", "[", 0),
+    ("RBRACK", "]", 0),
+    ("LBRACE", "{", 0),
+    ("RBRACE", "}", 0),
+    ("COLON", ":", 0) ,
+    ("SEMICOLON", ";", 0),
+    ("PERIOD", ".", 0),
+    ("CONDITIONAL", "?", 3),
+    ("INC", "++", 0),
+    ("DEC", "--", 0),
 
-def IsCompareOp(op):
-  iop = IndexOf(op)
-  return IndexOf("EQ") <= iop and iop <= IndexOf("IN")
+    # Assignment operators.
+    # IsAssignmentOp() relies on this block of enum values
+    # being contiguous and sorted in the same order!
+#   ("INIT_VAR", "=init_var", 2),  # AST-use only.
+    ("INIT_VAR", "=", 2),  # AST-use only.
+    ("INIT_CONST", "=init_const", 2),  # AST-use only.
+    ("ASSIGN", "=", 2),
+    ("ASSIGN_BIT_OR", "|=", 2),
+    ("ASSIGN_BIT_XOR", "^=", 2),
+    ("ASSIGN_BIT_AND", "&=", 2),
+    ("ASSIGN_SHL", "<<=", 2),
+    ("ASSIGN_SAR", ">>=", 2),
+    ("ASSIGN_SHR", ">>>=", 2),
+    ("ASSIGN_ADD", "+=", 2),
+    ("ASSIGN_SUB", "-=", 2),
+    ("ASSIGN_MUL", "*=", 2),
+    ("ASSIGN_DIV", "/=", 2),
+    ("ASSIGN_MOD", "%=", 2),
 
-def IsBinaryOp(op):
-  iop = IndexOf(op)
-  return IndexOf("COMMA") <= iop and iop <= IndexOf("MOD")
+    # Binary operators sorted by precedence.
+    # IsBinaryOp() relies on this block of enum values
+    # being contiguous and sorted in the same order!
+    ("COMMA", ",", 1),
+    ("OR", "||", 4),
+    ("AND", "&&", 5),
+    ("BIT_OR", "|", 6),
+    ("BIT_XOR", "^", 7),
+    ("BIT_AND", "&", 8),
+    ("SHL", "<<", 11),
+    ("SAR", ">>", 11),
+    ("SHR", ">>>", 11),
+    ("ADD", "+", 12),
+    ("IADD", ".+", 12),
+    ("SUB", "-", 12),
+    ("MUL", "*", 13),
+    ("DIV", "/", 13),
+    ("MOD", "%", 13),
 
-def Precedence(tok):
-  for token in tokens:
-    if token[0] == tok:
-      return token[2]
-  assert(False)
+    # Binary operators sorted by precedence.
+    # IsBinaryOp() relies on this block of enum values
+    # being contiguous and sorted in the same order!
+    ("COMMA", ",", 1),
+    ("OR", "||", 4),
+    ("AND", "&&", 5),
+    ("BIT_OR", "|", 6),
+    ("BIT_XOR", "^", 7),
+    ("BIT_AND", "&", 8),
+    ("SHL", "<<", 11),
+    ("SAR", ">>", 11),
+    ("SHR", ">>>", 11),
+    ("ADD", "+", 12),
+    ("IADD", ".+", 12),
+    ("SUB", "-", 12),
+    ("MUL", "*", 13),
+    ("DIV", "/", 13),
+    ("MOD", "%", 13),
 
-def String(tok):
-  for token in tokens:
-    if token[0] == tok:
-      return token[1]
-  assert(False)
+    # Compare operators sorted by precedence.
+    # IsCompareOp() relies on this block of enum values
+    # being contiguous and sorted in the same order!
+    ("EQ", "==", 9),
+    ("NE", "!=", 9),
+    ("EQ_STRICT", "===", 9),
+    ("NE_STRICT", "!==", 9),
+    ("LT", "<", 10),
+    ("GT", ">", 10),
+    ("LTE", "<=", 10),
+    ("GTE", ">=", 10),
+    ("INSTANCEOF", "instanceof", 10),
+    ("IN", "in", 10),
 
-tokens = [
-  # End of source indicator.
-  ("EOS", "EOS", 0),
+    # Unary operators.
+    # IsUnaryOp() relies on this block of enum values
+    # being contiguous and sorted in the same order!
+    ("NOT", "!", 0),
+    ("BIT_NOT", "~", 0),
+    ("DELETE", "delete", 0),
+    ("TYPEOF", "typeof", 0),
+    ("VOID", "void", 0),
 
-  # Punctuators (ECMA-262, section 7.7, page 15).
-  ("LPAREN", "(", 0),
-  ("RPAREN", ")", 0),
-  ("LBRACK", "[", 0),
-  ("RBRACK", "]", 0),
-  ("LBRACE", "{", 0),
-  ("RBRACE", "}", 0),
-  ("COLON", ":", 0) ,
-  ("SEMICOLON", ";", 0),
-  ("PERIOD", ".", 0),
-  ("CONDITIONAL", "?", 3),
-  ("INC", "++", 0),
-  ("DEC", "--", 0),
+    # Keywords (ECMA-262, section 7.5.2, page 13).
+    ("BREAK", "break", 0),
+    ("CASE", "case", 0),
+    ("CATCH", "catch", 0),
+    ("CONTINUE", "continue", 0),
+    ("DEBUGGER", "debugger", 0),
+    ("DEFAULT", "default", 0),
+    # DELETE
+    ("DO", "do", 0),
+    ("ELSE", "else", 0),
+    ("FINALLY", "finally", 0),
+    ("FOR", "for", 0),
+    ("FUNCTION", "function", 0),
+    ("IF", "if", 0),
+    # IN
+    # INSTANCEOF
+    ("NEW", "new", 0),
+    ("RETURN", "return", 0),
+    ("SWITCH", "switch", 0),
+    ("THIS", "this", 0),
+    ("THROW", "throw", 0),
+    ("TRY", "try", 0),
+    # TYPEOF
+    ("VAR", "var", 0),
+    # VOID
+    ("WHILE", "while", 0),
+    ("WITH", "with", 0),
 
-  # Assignment operators.
-  # IsAssignmentOp() relies on this block of enum values
-  # being contiguous and sorted in the same order!
-#  ("INIT_VAR", "=init_var", 2),  # AST-use only.
-  ("INIT_VAR", "=", 2),  # AST-use only.
-  ("INIT_CONST", "=init_const", 2),  # AST-use only.
-  ("ASSIGN", "=", 2),
-  ("ASSIGN_BIT_OR", "|=", 2),
-  ("ASSIGN_BIT_XOR", "^=", 2),
-  ("ASSIGN_BIT_AND", "&=", 2),
-  ("ASSIGN_SHL", "<<=", 2),
-  ("ASSIGN_SAR", ">>=", 2),
-  ("ASSIGN_SHR", ">>>=", 2),
-  ("ASSIGN_ADD", "+=", 2),
-  ("ASSIGN_SUB", "-=", 2),
-  ("ASSIGN_MUL", "*=", 2),
-  ("ASSIGN_DIV", "/=", 2),
-  ("ASSIGN_MOD", "%=", 2),
+    # Future reserved words (ECMA-262, section 7.5.3, page 14).
+    ("ABSTRACT", "abstract", 0),
+    ("BOOLEAN", "boolean", 0),
+    ("BYTE", "byte", 0),
+    ("CHAR", "char", 0),
+    ("CLASS", "class", 0),
+    ("CONST", "const", 0),
+    ("DOUBLE", "double", 0),
+    ("ENUM", "enum", 0),
+    ("EXPORT", "export", 0),
+    ("EXTENDS", "extends", 0),
+    ("FINAL", "final", 0),
+    ("FLOAT", "float", 0),
+    ("GOTO", "goto", 0),
+    ("IMPLEMENTS", "implements", 0),
+    ("IMPORT", "import", 0),
+    ("INT", "int", 0),
+    ("INTERFACE", "interface", 0),
+    ("LONG", "long", 0),
+    ("NATIVE", "native", 0),
+    ("PACKAGE", "package", 0),
+    ("PRIVATE", "private", 0),
+    ("PROTECTED", "protected", 0),
+    ("PUBLIC", "public", 0),
+    ("SHORT", "short", 0),
+    ("STATIC", "static", 0),
+    ("SUPER", "super", 0),
+    ("SYNCHRONIZED", "synchronized", 0),
+    ("THROWS", "throws", 0),
+    ("TRANSIENT", "transient", 0),
+    ("VOLATILE", "volatile", 0),
 
-  # Binary operators sorted by precedence.
-  # IsBinaryOp() relies on this block of enum values
-  # being contiguous and sorted in the same order!
-  ("COMMA", ",", 1),
-  ("OR", "||", 4),
-  ("AND", "&&", 5),
-  ("BIT_OR", "|", 6),
-  ("BIT_XOR", "^", 7),
-  ("BIT_AND", "&", 8),
-  ("SHL", "<<", 11),
-  ("SAR", ">>", 11),
-  ("SHR", ">>>", 11),
-  ("ADD", "+", 12),
-  ("IADD", ".+", 12),
-  ("SUB", "-", 12),
-  ("MUL", "*", 13),
-  ("DIV", "/", 13),
-  ("MOD", "%", 13),
+    # Literals (ECMA-262, section 7.8, page 16).
+    ("NULL_LITERAL", "null", 0),
+    ("TRUE_LITERAL", "true", 0),
+    ("FALSE_LITERAL", "false", 0),
+    ("NUMBER", None, 0),
+    ("STRING", None, 0),
 
-  # Binary operators sorted by precedence.
-  # IsBinaryOp() relies on this block of enum values
-  # being contiguous and sorted in the same order!
-  ("COMMA", ",", 1),
-  ("OR", "||", 4),
-  ("AND", "&&", 5),
-  ("BIT_OR", "|", 6),
-  ("BIT_XOR", "^", 7),
-  ("BIT_AND", "&", 8),
-  ("SHL", "<<", 11),
-  ("SAR", ">>", 11),
-  ("SHR", ">>>", 11),
-  ("ADD", "+", 12),
-  ("IADD", ".+", 12),
-  ("SUB", "-", 12),
-  ("MUL", "*", 13),
-  ("DIV", "/", 13),
-  ("MOD", "%", 13),
+    # Identifiers (not keywords or future reserved words).
+    ("IDENTIFIER", None, 0),
 
-  # Compare operators sorted by precedence.
-  # IsCompareOp() relies on this block of enum values
-  # being contiguous and sorted in the same order!
-  ("EQ", "==", 9),
-  ("NE", "!=", 9),
-  ("EQ_STRICT", "===", 9),
-  ("NE_STRICT", "!==", 9),
-  ("LT", "<", 10),
-  ("GT", ">", 10),
-  ("LTE", "<=", 10),
-  ("GTE", ">=", 10),
-  ("INSTANCEOF", "instanceof", 10),
-  ("IN", "in", 10),
+    # Illegal token - not able to scan.
+    ("ILLEGAL", "ILLEGAL", 0),
 
-  # Unary operators.
-  # IsUnaryOp() relies on this block of enum values
-  # being contiguous and sorted in the same order!
-  ("NOT", "!", 0),
-  ("BIT_NOT", "~", 0),
-  ("DELETE", "delete", 0),
-  ("TYPEOF", "typeof", 0),
-  ("VOID", "void", 0),
+    # Scanner-internal use only.
+    ("WHITESPACE", None, 0)
+    ]
 
-  # Keywords (ECMA-262, section 7.5.2, page 13).
-  ("BREAK", "break", 0),
-  ("CASE", "case", 0),
-  ("CATCH", "catch", 0),
-  ("CONTINUE", "continue", 0),
-  ("DEBUGGER", "debugger", 0),
-  ("DEFAULT", "default", 0),
-  # DELETE
-  ("DO", "do", 0),
-  ("ELSE", "else", 0),
-  ("FINALLY", "finally", 0),
-  ("FOR", "for", 0),
-  ("FUNCTION", "function", 0),
-  ("IF", "if", 0),
-  # IN
-  # INSTANCEOF
-  ("NEW", "new", 0),
-  ("RETURN", "return", 0),
-  ("SWITCH", "switch", 0),
-  ("THIS", "this", 0),
-  ("THROW", "throw", 0),
-  ("TRY", "try", 0),
-  # TYPEOF
-  ("VAR", "var", 0),
-  # VOID
-  ("WHILE", "while", 0),
-  ("WITH", "with", 0),
+  @staticmethod
+  def Init():
+    Token.names_ = [token[0] for token in Token.tokens_]
+    Token.strings_ = [token[1] for token in Token.tokens_]
+    Token.precedences_ = [token[2] for token in Token.tokens_]
+    Token.name2int_ = dict()
+    for i in range(0, len(Token.tokens_)):
+      Token.name2int_[Token.tokens_[i][1]] = i
+      vars(Token)[Token.tokens_[i][0]] = i
 
-  # Literals (ECMA-262, section 7.8, page 16).
-  ("NULL_LITERAL", "null", 0),
-  ("TRUE_LITERAL", "true", 0),
-  ("FALSE_LITERAL", "false", 0),
-  ("NUMBER", None, 0),
-  ("STRING", None, 0),
+  @staticmethod
+  def Name(type):
+    return Token.names_[type]
 
-  # Identifiers (not keywords or future reserved words).
-  ("IDENTIFIER", None, 0),
+  @staticmethod
+  def String(tok):
+    return Token.strings_[tok]
 
-  # Illegal token - not able to scan.
-  ("ILLEGAL", "ILLEGAL", 0),
+  @staticmethod
+  def Precedence(tok):
+    return Token.precedences_[tok]
 
-  # Scanner-internal use only.
-  ("WHITESPACE", None, 0)
-]
+  @staticmethod
+  def IsAssignmentOp(op):
+    return Token.INIT_VAR <= op and op <= Token.ASSIGN_MOD
 
-def IndexOf(op):
-  ret = 0
-  for token in tokens:
-    if token[0] == op:
-      return ret
-    ret = ret + 1
+  @staticmethod
+  def IsUnaryOp(op):
+    return Token.NOT <= op and op <= Token.VOID or \
+           op == Token.ADD or op == Token.SUB
+
+  @staticmethod
+  def IsCountOp(op):
+    return op == Token.INC or op == Token.DEC
+
+  @staticmethod
+  def IsCompareOp(op):
+    return Token.EQ <= op and op <= Token.IN
+
+  @staticmethod
+  def IsBinaryOp(op):
+    return Token.COMMA<= op and op <= Token.MOD
+
+Token.Init()
 
 class KeywordMatcher:
   def __init__(self):
@@ -224,10 +264,9 @@ class KeywordMatcher:
   def AddChar(self, c):
     self.buffer += c
   def token(self):
-    for token in tokens:
-      if token[1] == self.buffer:
-        return token[0]
-    return "IDENTIFIER"
+    if self.buffer in Token.name2int_:
+      return Token.name2int_[self.buffer]
+    return Token.IDENTIFIER
 
 class Scanner:
   class Location:
@@ -237,7 +276,7 @@ class Scanner:
 
   class TokenDesc:
     def __init__(self):
-      self.token = "ILLEGAL"
+      self.token = Token.ILLEGAL
       self.location = Scanner.Location()
       self.literal_buffer = ""
 
@@ -294,9 +333,9 @@ class Scanner:
 
   def Scan(self):
     self.next_.literal_buffer = ""
-    token = "WHITESPACE"
+    token = Token.WHITESPACE
     self.has_line_terminator_before_next_ = False
-    while token == "WHITESPACE":
+    while token == Token.WHITESPACE:
       # Remember the position of the next token
       self.next_.location.beg_pos = self.source_pos()
 
@@ -305,12 +344,12 @@ class Scanner:
 
       if self.c0_ == ' ' or self.c0_ == '\t':
         self.Advance()
-        token = "WHITESPACE"
+        token = Token.WHITESPACE
 
       elif self.c0_ == '\n':
         self.Advance()
         self.has_line_terminator_before_next_ = True
-        token = "WHITESPACE"
+        token = Token.WHITESPACE
 
       elif self.c0_ == '"' or self.c0_ == '\'':
         token = self.ScanString()
@@ -319,72 +358,72 @@ class Scanner:
         # < <= << <<= <!--
         self.Advance()
         if self.c0_ == '=':
-          token = self.Select("LTE")
+          token = self.Select(Token.LTE)
         elif self.c0_ == '<':
-          token = self.Select("=", "ASSIGN_SHL", "SHL")
+          token = self.Select("=", Token.ASSIGN_SHL, Token.SHL)
 #        } else if (c0_ == '!') {
 #          token = ScanHtmlComment();
         else:
-          token = "LT"
+          token = Token.LT
 
       elif self.c0_ == '>':
         # > >= >> >>= >>> >>>=
         self.Advance()
         if self.c0_ == '=':
-          token = self.Select("GTE")
+          token = self.Select(Token.GTE)
         elif self.c0_ == '>':
           # >> >>= >>> >>>=
           self.Advance()
           if self.c0_ == '=':
-            token = self.Select("ASSIGN_SAR")
+            token = self.Select(Token.ASSIGN_SAR)
           elif self.c0_ == '>':
-            token = self.Select('=', "ASSIGN_SHR", "SHR")
+            token = self.Select('=', Token.ASSIGN_SHR, Token.SHR)
           else:
-            token = "SAR";
+            token = Token.SAR;
         else:
-          token = "GT"
+          token = Token.GT
 
       elif self.c0_ == '=':
         self.Advance()
         if self.c0_ == '=':
-          token = self.Select('=', "EQ_STRICT", "EQ")
+          token = self.Select('=', Token.EQ_STRICT, Token.EQ)
         else:
-          token = "ASSIGN"
+          token = Token.ASSIGN
 
       elif self.c0_ == '!':
         self.Advance()
         if self.c0_ == '=':
-          token = self.Select('=', "NE_STRICT", "NE")
+          token = self.Select('=', Token.NE_STRICT, Token.NE)
         else:
-          token = "NOT"
+          token = Token.NOT
 
       elif self.c0_ == '+':
         # + ++ +=
         self.Advance()
         if self.c0_ == '+':
-          token = self.Select("INC")
+          token = self.Select(Token.INC)
         elif self.c0_ == '=':
-          token = self.Select("ASSIGN_ADD")
+          token = self.Select(Token.ASSIGN_ADD)
         else:
-          token = "ADD"
+          token = Token.ADD
 
       elif self.c0_ == '-':
         # - -- --> -=
         self.Advance()
         if self.c0_ == '-':
-          token = self.Select("DEC")
+          token = self.Select(Token.DEC)
         elif self.c0_ == '=':
-          token = self.Select("ASSIGN_SUB")
+          token = self.Select(Token.ASSIGN_SUB)
         else:
-          token = "SUB"
+          token = Token.SUB
 
       elif self.c0_ == '*':
         # * *=
-        token = self.Select('=', "ASSIGN_MUL", "MUL")
+        token = self.Select('=', Token.ASSIGN_MUL, Token.MUL)
 
       elif self.c0_ == '%':
         # % %=
-        token = self.Select('=', "ASSIGN_MOD", "MOD")
+        token = self.Select('=', Token.ASSIGN_MOD, Token.MOD)
 
       elif self.c0_ == '/':
         # /  // /* /=
@@ -394,33 +433,33 @@ class Scanner:
         elif self.c0_ == '*':
           token = self.SkipMultiLineComment()
         elif self.c0_ == '=':
-          token = self.Select("ASSIGN_DIV")
+          token = self.Select(Token.ASSIGN_DIV)
         else:
-          token = "DIV"
+          token = Token.DIV
 
       elif self.c0_ == '&':
         # & && &=
         self.Advance()
         if self.c0_ == '&':
-          token = self.Select("AND")
+          token = self.Select(Token.AND)
         elif self.c0_ == '=':
-          token = self.Select("ASSIGN_BIT_AND")
+          token = self.Select(Token.ASSIGN_BIT_AND)
         else:
-          token = "BIT_AND"
+          token = Token.BIT_AND
 
       elif self.c0_ == '|':
         # | || |=
         self.Advance()
         if self.c0_ == '|':
-          token = self.Select("OR")
+          token = self.Select(Token.OR)
         elif self.c0_ == '=':
-          token = self.Select("ASSIGN_BIT_OR")
+          token = self.Select(Token.ASSIGN_BIT_OR)
         else:
-          token = "BIT_OR"
+          token = Token.BIT_OR
 
       elif self.c0_ == '^':
         # ^ ^=
-        token = self.Select('=', "ASSIGN_BIT_XOR", "BIT_XOR")
+        token = self.Select('=', Token.ASSIGN_BIT_XOR, Token.BIT_XOR)
 
       elif self.c0_ == '.':
         # . Number
@@ -428,40 +467,40 @@ class Scanner:
         if IsDecimalDigit(self.c0_):
           token = self.ScanNumber(True)
         else:
-          token = "PERIOD"
+          token = Token.PERIOD
 
       elif self.c0_ == ':':
-        token = self.Select("COLON")
+        token = self.Select(Token.COLON)
 
       elif self.c0_ == ';':
-        token = self.Select("SEMICOLON")
+        token = self.Select(Token.SEMICOLON)
 
       elif self.c0_ == ',':
-        token = self.Select("COMMA")
+        token = self.Select(Token.COMMA)
 
       elif self.c0_ == '(':
-        token = self.Select("LPAREN")
+        token = self.Select(Token.LPAREN)
 
       elif self.c0_ == ')':
-        token = self.Select("RPAREN")
+        token = self.Select(Token.RPAREN)
 
       elif self.c0_ == '[':
-        token = self.Select("LBRACK")
+        token = self.Select(Token.LBRACK)
 
       elif self.c0_ == ']':
-        token = self.Select("RBRACK")
+        token = self.Select(Token.RBRACK)
 
       elif self.c0_ == '{':
-        token = self.Select("LBRACE")
+        token = self.Select(Token.LBRACE)
 
       elif self.c0_ == '}':
-        token = self.Select("RBRACE")
+        token = self.Select(Token.RBRACE)
 
       elif self.c0_ == '?':
-        token = self.Select("CONDITIONAL")
+        token = self.Select(Token.CONDITIONAL)
 
       elif self.c0_ == '~':
-        token = self.Select("BIT_NOT")
+        token = self.Select(Token.BIT_NOT)
 
       else:
         if IsIdentifierStart(self.c0_):
@@ -469,11 +508,11 @@ class Scanner:
         elif IsDecimalDigit(self.c0_):
           token = self.ScanNumber(False)
         elif self.SkipWhiteSpace():
-          token = "WHITESPACE"
+          token = Token.WHITESPACE
         elif self.c0_ == EOF:
-          token = "EOS"
+          token = Token.EOS
         else:
-          token = self.Select("ILLEGAL")
+          token = self.Select(Token.ILLEGAL)
 
     self.next_.location.end_pos = self.source_pos()
     self.next_.token = token
@@ -505,7 +544,7 @@ class Scanner:
           kind = HEX
           self.AddCharAdvance()
           if not IsHexDigit(self.c0_):
-            return "ILLEGAL"
+            return Token.ILLEGAL
           while IsHexDigit(self.c0_):
             self.AddCharAdvance()
 
@@ -531,14 +570,14 @@ class Scanner:
     if self.c0_ == 'e' or self.c0_ == 'E':
       assert(kind != HEX)  # 'e'/'E' must be scanned as part of the hex number
       if kind == OCTAL:
-        return "ILLEGAL"  # no exponent for octals allowed
+        return Token.ILLEGAL  # no exponent for octals allowed
       # scan exponent
       self.AddCharAdvance()
       if self.c0_ == '+' or self.c0_ == '-':
         self.AddCharAdvance()
       if not IsDecimalDigit(self.c0_):
         # we must have at least one decimal digit after 'e'/'E'
-        return "ILLEGAL"
+        return Token.ILLEGAL
       self.ScanDecimalDigits()
 
     # The source character immediately following a numeric literal must
@@ -546,9 +585,9 @@ class Scanner:
     # section 7.8.3, page 17 (note that we read only one decimal digit
     # if the value is 0).
     if IsDecimalDigit(self.c0_) or IsIdentifierStart(self.c0_):
-      return "ILLEGAL"
+      return Token.ILLEGAL
 
-    return "NUMBER"
+    return Token.NUMBER
 
   def ScanString(self):
     quote = self.c0_
@@ -560,16 +599,16 @@ class Scanner:
       self.Advance()
       if c == '\\':
         if self.c0_ == EOF:
-          return "ILLEGAL"
+          return Token.ILLEGAL
         ScanEscape()
       else:
         self.AddChar(c)
 
     if self.c0_ != quote:
-      return "ILLEGAL"
+      return Token.ILLEGAL
 
     self.Advance()  # consume quote
-    return "STRING"
+    return Token.STRING
 
   def Advance(self):
     if self.position_ == len(self.source_):
@@ -601,7 +640,7 @@ class Scanner:
     # ECMA-262, section 7.4, page 12).
     while self.c0_ != EOF and not IsLineTerminator(self.c0_):
       self.Advance()
-    return "WHITESPACE"
+    return Token.WHITESPACE
 
   def SkipMultiLineComment(self):
     assert(self.c0_ == '*')
@@ -619,10 +658,10 @@ class Scanner:
       # matches the behaviour of SpiderMonkey and KJS.
       if ch == '*' and self.c0_ == '/':
         self.c0_ = ' '
-        return "WHITESPACE"
+        return Token.WHITESPACE
 
     # Unterminated multi-line comment.
-    return "ILLEGAL"
+    return Token.ILLEGAL
 
   def StartLiteral(self):
     self.next_.literal_string = ""
@@ -697,12 +736,13 @@ class SmiAnalysis:
   def CopyFrom(self, other):
     self.kind = other.kind
 
+  @staticmethod
   def Type2String(type):
     if type == self.UNKNOWN:
       return "UNKNOWN"
     elif type == self.LIKELY_SMI:
       return "LIKELY_SMI"
-    assert("UNREACHABLE")
+    assert(False)
 
   def SetAsLikelySmi(self):
     self.kind = self.LIKELY_SMI
@@ -786,16 +826,17 @@ class Variable:
   ARGUMENTS = 2
 
   def __init__(self, scope, name, mode, is_valid_lhs, kind):
-    self.scope = scope
-    self.name = name
-    self.mode = mode
-    self.is_valid_LHS = is_valid_lhs
-    self.kind = kind
-    self.local_if_not_shadowed = None
-    self.is_accessed_from_inner_scope = False
-    self.rewrite = None
+    self.scope_ = scope
+    self.name_ = name
+    self.mode_ = mode
+    self.is_valid_LHS_ = is_valid_lhs
+    self.kind_ = kind
+    self.local_if_not_shadowed_ = None
+    self.is_accessed_from_inner_scope_ = False
+    self.rewrite_ = None
     self.var_uses_ = Variable.UseCount()
     #ASSERT(name->IsSymbol());
+    self.fun_ = None  # added by keisuke
 
   def Mode2String(mode):
     for t in ((self.VAR, "VAR"),
@@ -812,7 +853,7 @@ class Variable:
   def AsProperty(self):
     return None if self.rewrite == None else self.rewrite.AsProperty()
   def AsVariable(self):
-    if self.rewrite == None or self.rewrite.AsSlot() != None:
+    if self.rewrite_ == None or self.rewrite_.AsSlot() != None:
       return self
     else:
       return None
@@ -821,94 +862,59 @@ class Variable:
   # in an outer scope about which we don't know anything (it may not
   # be the global scope). scope() is NULL in that case. Currently the
   # scope is only used to follow the context chain length.
-  def scope(self):
-    return self.scope
+  def scope(self): return self.scope_
 
-  def name(self):
-    return self.name
-  def mode(self):
-    return self.mode
+  def name(self): return self.name_
+  def mode(self): return self.mode_
   def is_accessed_from_inner_scope(self):
-    return self.is_accessed_from_inner_scope
-  def var_uses(self):
-    return self.var_uses_
-  def obj_uses(self):
-    return self.obj_uses_
+    return self.is_accessed_from_inner_scope_
+  def var_uses(self): return self.var_uses_
+  def obj_uses(self): return self.obj_uses_
 
   def IsVariable(self, n):
-    return not self.is_this() and self.name.value == n.value
+    return not self.is_this() and self.name_.value == n.value
 
   def is_dynamic(self):
-    return self.mode == self.DYNAMIC or \
-         self.mode == self.DYNAMIC_GLOBAL or \
-         self.mode == self.DYNAMIC_LOCAL
+    return self.mode_ == self.DYNAMIC or \
+           self.mode_ == self.DYNAMIC_GLOBAL or \
+           self.mode_ == self.DYNAMIC_LOCAL
 
   def is_global(self):
     # Temporaries are never global, they must always be allocated in the
     # activation frame.
-    return self.mode != self.TEMPORARY and self.scope != None and \
-      self.scope.is_global_scope()
-  def is_this(self):
-    return self.kind == self.THIS
+    return self.mode_ != self.TEMPORARY and self.scope_ != None and \
+           self.scope_.is_global_scope()
+  def is_this(self): return self.kind_ == self.THIS
 
   def is_possibly_eval(self):
     return self.IsVariable("eval") and \
-      (self.mode == self.DYNAMIC or self.mode == self.DYNAMIC_GLOBAL)
+      (self.mode_ == self.DYNAMIC or self.mode_ == self.DYNAMIC_GLOBAL)
 
   def local_if_not_shadowed(self):
-    assert(self.mode == self.DYNAMIC_LOCAL and self.local_if_not_shadowed != None)
+    assert(self.mode_ == self.DYNAMIC_LOCAL and self.local_if_not_shadowed != None)
     return local_if_not_shadowed
 
   def set_local_if_not_shadowed(self, local):
     self.set_local_if_not_shadowed = local
 
   def rewrite(self):
-    return self.rewrite
+    return self.rewrite_
   def slot(self):
-    return self.rewite.AsSlot() if self.rewrite != None else None
+    return self.rewite.AsSlot() if self.rewrite_ != None else None
 
   def type(self):
-    return self.type
+    return self.type_
 
   # added by keisuke
   def Accept(self, v):
     v.VisitVariable(self)
 
-class Type:
-  INT = 0
-  FLOAT = 1
-  BOOL = 2
-  STRING = 3
-  FUNCTION = 4
-  NULL = 5
-  UNKNOWN = 10
-
-  @staticmethod
-  def ToString(type):
-    for T in ((Type.INT, "INT"), (Type.FLOAT, "FLOAT"), (Type.BOOL, "BOOL"),
-          (Type.STRING, "STRING"), (Type.FUNCTION, "FUNCTION"),
-          (Type.NULL, "NULL"), (Type.UNKNOWN, "UNKNOWN")):
-      if T[0] == type:
-        return T[1]
-    assert(False)
-
-class TypeNode:
-  def __init__(self):
-    self.types = []
-    self.constraints = []
-
-  def AddEdge(self, target):
-    self.constraints.append(target)
-
-  def Propagate(self):
-    ret = False
-    for constraint in self.constraints:
-      for type in self.types:
-        if not type in constraint.types:
-          ret = True
-          constraint.types.append(type);
-          constraint.Propagate()
-    return ret
+  # added by keisuke
+  def fun(self):
+    return self.fun_
+  def set_fun(self, fun):
+    assert(isinstance(fun, FunctionLiteral))
+    self.fun_ = fun
 
 class AstNode:
   def Accept(self): assert(False)
@@ -958,7 +964,7 @@ class Expression(AstNode):
   kTestValue = 5
 
   def __init__(self):
-    self.context = self.kUninitialized
+    self.context_ = self.kUninitialized
 
   def AsExpression(self): return self
 
@@ -968,10 +974,11 @@ class Expression(AstNode):
   def MarkAsStatement(self): pass  # do nothing
 
   # Static type information for this expression.
-  def type(self): return self.type
+  #def type(self): return self.type_
+  def type(self): return None
 
-  def context(self): return self.context
-  def set_context(self, context): self.context = context
+  def context(self): return self.context_
+  def set_context(self, context): self.context_ = context
 
 class BreakableStatement(Statement):
   # enum Type
@@ -980,40 +987,43 @@ class BreakableStatement(Statement):
 
   # The labels associated with this statement. May be NULL;
   # if it is != NULL, guaranteed to contain at least one entry.
-  def labels(self): return self.labels
+  def labels(self): return self.labels_
 
   def AsBreakableStatement(self): return self
 
   def break_target(self): return break_target
 
   def is_target_for_anonymous(self):
-    return self.type == self.TARGET_FOR_ANONYMOUS
+    return self.type_ == self.TARGET_FOR_ANONYMOUS
 
   def __init__(self, labels, type):
-    self.labels = labels
-    self.type = type
+    self.labels_ = labels
+    self.type_ = type
     assert(labels == None or len(labels) > 0)
 
 class Block(BreakableStatement):
   def __init__(self, labels, capacity, is_initializer_block):
     BreakableStatement.__init__(self, labels, self.TARGET_FOR_NAMED_ONLY)
-    self.statements = []
-    self.is_initializer_block = is_initializer_block
+    self.statements_ = []
+    self.is_initializer_block_ = is_initializer_block
 
   def Accept(self, v):
     v.VisitBlock(self)
 
   def AddStatement(self, statement):
-    self.statements.append(statement)
+    self.statements_.append(statement)
 
   def statements(self):
-    return self.statements
+    return self.statements_
+
+  def is_initializer_block(self):
+    return self.is_initializer_block_
 
 class Declaration(AstNode):
   def __init__(self, proxy, mode, fun):
-    self.proxy = proxy
-    self.mode = mode
-    self.fun = fun
+    self.proxy_ = proxy
+    self.mode_ = mode
+    self.fun_ = fun
     assert(mode == Variable.VAR or mode == Variable.CONST)
     assert(fun == None or mode == Variable.VAR)
 
@@ -1021,17 +1031,17 @@ class Declaration(AstNode):
     v.VisitDeclaration(self)
 
   def proxy(self):
-    return self.proxy
+    return self.proxy_
 
   def mode(self):
-    return self.mode
+    return self.mode_
 
   def fun(self):
-    return self.fun
+    return self.fun_
 
 class ExpressionStatement(Statement):
   def __init__(self, expression):
-    self.expression = expression
+    self.expression_ = expression
 
   def Accept(self, v):
     v.VisitExpressionStatement(self)
@@ -1039,14 +1049,12 @@ class ExpressionStatement(Statement):
   def AsExpressionStatement(self):
     return self
 
-  def set_expression(self, e):
-    self.expression = e
-  def expression(self):
-    return self.expression
+  def set_expression(self, e): self.expression_ = e
+  def expression(self): return self.expression_
 
 class ReturnStatement(Statement):
   def __init__(self, expression):
-    self.expression = expression
+    self.expression_ = expression
 
   def Accept(self, v):
     v.VisitReturnStatement(self)
@@ -1055,7 +1063,7 @@ class ReturnStatement(Statement):
     return self
 
   def expression(self):
-    return self.expression
+    return self.expression_
 
 # If-statements always have non-null references to their then- and
 # else-parts. When parsing if-statements with no explicit else-part,
@@ -1064,17 +1072,19 @@ class ReturnStatement(Statement):
 # given if-statement has a then- or an else-part containing code.
 class IfStatement(Statement):
   def __init__(self, condition, then_statement, else_statement):
-    self.condition = condition
-    self.then_statement = then_statement
-    self.else_statement = else_statement
+    self.condition_ = condition
+    self.then_statement_ = then_statement
+    self.else_statement_ = else_statement
 
   def Accept(self, v):
     v.VisitIfStatement(self)
 
-  def HasThenStatement(self):
-    return not self.then_statement.IsEmpty()
-  def HasElseStatement(self):
-    return not self.else_statement.IsEmpty()
+  def HasThenStatement(self): return not self.then_statement_.IsEmpty()
+  def HasElseStatement(self): return not self.else_statement_.IsEmpty()
+
+  def condition(self): return self.condition_
+  def then_statement(self): return self.then_statement_
+  def else_statement(self): return self.else_statement_
 
 class EmptyStatement(Statement):
   def Accept(self, v):
@@ -1085,7 +1095,7 @@ class EmptyStatement(Statement):
 
 class Literal(Expression):
   def __init__(self, handle):
-    self.handle = handle
+    self.handle_ = handle
 
   def Accept(self, v):
     v.VisitLiteral(self)
@@ -1094,27 +1104,27 @@ class Literal(Expression):
     return self
 
   def IsIdenticalTo(other):
-    return self.handle == other.handle
+    return self.handle_ == other.handle_
 
   def IsValidJSON(self):
     return True
 
   def IsNull(self):
-    return self.handle == JSNULL
+    return self.handle_ == JSNULL
   def IsTrue(self):
-    return self.handle == JSTRUE
+    return self.handle_ == JSTRUE
   def IsFalse(self):
-    return self.handle == JSFALSE
+    return self.handle_ == JSFALSE
 
   def handle(self):
-    return self.handle
+    return self.handle_
 
 class VariableProxy(Expression):
   def __init__(self, name, is_this, inside_with):
-    self.name = name
-    self.var = None
-    self.is_this = is_this
-    self.inside_with = inside_with
+    self.name_ = name
+    self.var_ = None
+    self.is_this_ = is_this
+    self.inside_with_ = inside_with
     # names must be canonicalized for fast equality checks
     #ASSERT(name->IsSymbol());
 
@@ -1122,28 +1132,35 @@ class VariableProxy(Expression):
     v.VisitVariableProxy(self)
 
   def AsProperty(self):
-    return None if self.var == None else self.var.AsProperty()
+    return None if self.var_ == None else self.var_.AsProperty()
   def AsVariableProxy(self):
     return self
 
   def AsVariable(self):
-    return None if self == None or self.var == None else self.var.AsVariable()
+    return None if self == None or self.var_ == None else self.var_.AsVariable()
 
   def IsValidLeftHandSide(self):
-    return True if self.var == None else self.var.IsValidLeftHandSide()
+    return True if self.var_ == None else self.var_.IsValidLeftHandSide()
 
   def IsVariable(self, n):
-    return self.is_this and self.name == n
+    return self.is_this_ and self.name_ == n
 
   def IsArguments(self):
     variable = self.AsVariable()
     return False if variable == None else variable.is_arguments()
 
+  def name(self): return self.name_
+  def var(self): return self.var_
+  def var_uses(self): return self.var_uses_
+  def obj_uses(self): return self.obj_uses_
+  def is_this(self): return self.is_this_
+  def inside_with(self): return self.inside_with_
+
   def BindTo(self, var):
-    assert(self.var == None)
+    assert(self.var_ == None)
     assert(var != None)
     #assert((self.is_this and var.is_this) or self.name.is_identical_to(var.name))
-    self.var = var
+    self.var_ = var
 
 class Slot(Expression):
   # enum Type {
@@ -1168,9 +1185,9 @@ class Slot(Expression):
   LOOKUP = 3
 
   def __init__(self, var, type, index):
-    self.var = var
-    self.type = type
-    self.index = index
+    self.var_ = var
+    self.type_ = type
+    self.index_ = index
     assert(var != None)
 
   def Accept(self, v):
@@ -1179,11 +1196,13 @@ class Slot(Expression):
   def AsSlot(self):
     return self
 
-  def is_arguments(self):
-    return self.var.is_arguments()
+  def var(self): return self.var_
+  def type(self): return self.type_
+  def index(self): return self.index_
+  def is_arguments(self): return self.var_.is_arguments()
 
 class Call(Expression):
-  sentinel = None
+  sentinel_ = None
 
   def __init__(self, expression, arguments):
     self.expression_ = expression
@@ -1195,21 +1214,18 @@ class Call(Expression):
   def AsCall(self):
     return self
 
-  def expression(self):
-    return self.expression_
-  def arguments(self):
-    return self.arguments_
-  def position(self):
-    return self.pos
+  def expression(self): return self.expression_
+  def arguments(self): return self.arguments_
+  def position(self): return self.pos
 
-  def sentinel(self):
-    return self.sentinel
+  @staticmethod
+  def sentinel(): return Call.sentinel_
 
 class UnaryOperation(Expression):
   def __init__(self, op, expression):
-    self.op = op
-    self.expression = expression
-    assert(IsUnaryOp(op))
+    self.op_ = op
+    self.expression_ = expression
+    assert(Token.IsUnaryOp(op))
 
   def Accept(self, v):
     v.VisitUnaryOperation(self)
@@ -1217,17 +1233,15 @@ class UnaryOperation(Expression):
   def AsUnaryOperation(self):
     return self
 
-  def op(self):
-    return self.op
-  def expression(self):
-    return self.expression
+  def op(self): return self.op_
+  def expression(self): return self.expression_
 
 class BinaryOperation(Expression):
   def __init__(self, op, left, right):
-    self.op = op
-    self.left = left
-    self.right = right
-    assert(IsBinaryOp(op))
+    self.op_ = op
+    self.left_ = left
+    self.right_ = right
+    assert(Token.IsBinaryOp(op))
 
   def Accept(self, v):
     v.VisitBinaryOperation(self)
@@ -1236,89 +1250,72 @@ class BinaryOperation(Expression):
     return self
 
   def ResultOverwrittenAllowed(self):
-    not_allowed = ("COMMA", "OR", "AND")
-    allowed = ("BIT_OR", "BIT_XOR", "BIT_AND", "SHL", "SAR", "SHR", "ADD",
-           "SUB", "MUL", "DIV", "MOD")
-    for keyword in not_allowed:
-      if self.op == keyword:
-        return False
-    for keyword in allowed:
-      if self.op == keyword:
-        return True
-    assert(false)
-    return true;
+    not_allowed = (Token.COMMA, Token.OR, Token.AND)
+    allowed = (Token.BIT_OR, Token.BIT_XOR, Token.BIT_AND, Token.SHL, Token.SAR, Token.SHR, Token.ADD,
+               Token.SUB, Token.MUL, Token.DIV, Token.MOD)
+    if self.op_ in not_allowed: return False
+    if self.op_ in allowed: return True
+    assert(False)
 
-  def op(self):
-    return self.op
-
-  def left(self):
-    return self.left
-
-  def right(self):
-    return self.right
+  def op(self): return self.op_
+  def left(self): return self.left_
+  def right(self): return self.right_
 
 class CountOperation(Expression):
   def __init__(self, is_prefix, op, expression):
-    self.is_prefix = is_prefix
-    self.op = op
-    self.expression = expression
+    self.is_prefix_ = is_prefix
+    self.op_ = op
+    self.expression_ = expression
 
   def Accept(self, v):
     v.VisitCountOperation(self)
 
-  def is_prefix(self):
-    return self.is_prefix
-  def is_postfix(self):
-    return not self.is_prefix
-  def op(self):
-    return self.op
-  def expression(self):
-    return self.expression
+  def is_prefix(self): return self.is_prefix_
+  def is_postfix(self): return not self.is_prefix_
+  def op(self): return self.op_
+  def expression(self): return self.expression_
 
   def MarkAsStatement(self):
-    self.is_prefix = true
+    self.is_prefix_ = true
 
 class CompareOperation(Expression):
   def __init__(self, op, left, right):
-    self.op = op
-    self.left = left
-    self.right = right
-    assert(IsCompareOp(op))
+    self.op_ = op
+    self.left_ = left
+    self.right_ = right
+    assert(Token.IsCompareOp(op))
 
   def Accept(self, v):
     v.VisitCompareOperation(self)
 
-  def op(self):
-    return self.op
-  def left(self):
-    return self.left
-  def right(self):
-    return self.right
+  def op(self): return self.op_
+  def left(self): return self.left_
+  def right(self): return self.right_
 
 class Conditional(Expression):
   def __init__(self, condition, then_expression, else_expression):
-    self.condition = condition
-    self.then_expression = then_expression
-    self.else_expression = else_expression
+    self.condition_ = condition
+    self.then_expression_ = then_expression
+    self.else_expression_ = else_expression
 
   def Accept(self, v):
     v.VisitConditional(self)
 
   def condition(self):
-    return self.condition
+    return self.condition_
   def then_expression(self):
-    return self.then_expression
+    return self.then_expression_
   def else_expression(self):
-    return self.else_expression
+    return self.else_expression_
 
 class Assignment(Expression):
   def __init__(self, op, target, value):
-    self.op = op
-    self.target = target
-    self.value = value
-    self.block_start = False
-    self.block_end = False
-    assert(IsAssignmentOp(op))
+    self.op_ = op
+    self.target_ = target
+    self.value_ = value
+    self.block_start_ = False
+    self.block_end_ = False
+    assert(Token.IsAssignmentOp(op))
 
   def Accept(self, v):
     v.VisitAssignment(self)
@@ -1326,21 +1323,26 @@ class Assignment(Expression):
     return self
 
   def binary_op(self):
-    T = (("ASSIGN_BIT_OR", "BIT_OR"),
-       ("ASSIGN_BIT_XOR", "BIT_XOR"),
-       ("ASSIGN_BIT_AND", "BIT_AND"),
-       ("ASSIGN_SHL", "SHL"),
-       ("ASSIGN_SAR", "SAR"),
-       ("ASSIGN_SHR", "SHR"),
-       ("ASSIGN_ADD", "ADD"),
-       ("ASSIGN_SUB", "SUB"),
-       ("ASSIGN_MUL", "MUL"),
-       ("ASSIGN_DIV", "DIV"),
-       ("ASSIGN_MOD", "MOD"))
+    T = ((Token.ASSIGN_BIT_OR, Token.BIT_OR),
+         (Token.ASSIGN_BIT_XOR, Token.BIT_XOR),
+         (Token.ASSIGN_BIT_AND, Token.BIT_AND),
+         (Token.ASSIGN_SHL, Token.SHL),
+         (Token.ASSIGN_SAR, Token.SAR),
+         (Token.ASSIGN_SHR, Token.SHR),
+         (Token.ASSIGN_ADD, Token.ADD),
+         (Token.ASSIGN_SUB, Token.SUB),
+         (Token.ASSIGN_MUL, Token.MUL),
+         (Token.ASSIGN_DIV, Token.DIV),
+         (Token.ASSIGN_MOD, Token.MOD))
     for t in T:
       if t[0] == self.op:
         return t[1]
     assert(False)
+
+  def op(self): return self.op_
+  def target(self): return self.target_
+  def value(self): return self.value_
+  def position(self): return pos_
 
   # An initialization block is a series of statments of the form
   # x.y.z.a = ...; x.y.z.b = ...; etc. The parser marks the beginning and
@@ -1372,14 +1374,10 @@ class FunctionLiteral(Expression):
   def AsFunctionLiteral(self):
     return self
 
-  def name(self):
-    return self.name_
-  def scope(self):
-    return self.scope_;
-  def body(self):
-    return self.body_
-  def is_expression(self):
-    return self.is_expression_
+  def name(self): return self.name_
+  def scope(self): return self.scope_;
+  def body(self): return self.body_
+  def is_expression(self): return self.is_expression_
 
   def num_parameters(self):
     return self.num_parameters_
@@ -1416,45 +1414,45 @@ class Scope:
   GLOBAL_SCOPE = 2    # the top-level scope for a program or a top-level eval
 
   def __init__(self, outer_scope, type):
-    self.outer_scope = outer_scope
-    self.inner_scopes = []
-    self.type = type
-    self.scope_name = JSObject("string", "")
-    self.variables = VariableMap()
-    self.temps = []
-    self.params = []
-    self.dynamics = None
-    self.unresolved = []
-    self.decls = []
-    self.receiver = None
-    self.function = None
-    self.arguments = None
-    self.arguments_shadow = None
-    self.scope_inside_with = False
-    self.scope_contains_with = False
-    self.scope_calls_eval = False
-    self.outer_scope_calls_eval = False
-    self.inner_scope_calls_eval = False
-    self.outer_scope_is_eval_scope = False
-    self.force_eager_compilation = False
-    self.num_stack_slots = False
-    self.num_heap_slots = False
+    self.outer_scope_ = outer_scope
+    self.inner_scopes_ = []
+    self.type_ = type
+    self.scope_name_ = JSObject("string", "")
+    self.variables_ = VariableMap()
+    self.temps_ = []
+    self.params_ = []
+    self.dynamics_ = None
+    self.unresolved_ = []
+    self.decls_ = []
+    self.receiver_ = None
+    self.function_ = None
+    self.arguments_ = None
+    self.arguments_shadow_ = None
+    self.scope_inside_with_ = False
+    self.scope_contains_with_ = False
+    self.scope_calls_eval_ = False
+    self.outer_scope_calls_eval_ = False
+    self.inner_scope_calls_eval_ = False
+    self.outer_scope_is_eval_scope_ = False
+    self.force_eager_compilation_ = False
+    self.num_stack_slots_ = False
+    self.num_heap_slots_ = False
     # At some point we might want to provide outer scopes to
     # eval scopes (by walking the stack and reading the scope info).
     # In that case, the ASSERT below needs to be adjusted.
     assert((type == self.GLOBAL_SCOPE or self.EVAL_SCOPE) == \
-           (self.outer_scope == None))
+           (self.outer_scope_ == None))
 
   def SetScopeName(self, scope_name):
-    self.scope_name = scope_name
+    self.scope_name_ = scope_name
 
   def Initialize(self, inside_with):
-    if not self.outer_scope == None:
-      self.outer_scope.inner_scopes.append(self)
-      self.scope_inside_with = self.outer_scope.scope_inside_with or \
+    if not self.outer_scope_ == None:
+      self.outer_scope_.inner_scopes_.append(self)
+      self.scope_inside_with_ = self.outer_scope_.scope_inside_with_ or \
         inside_with
     else:
-      self.scope_inside_with = inside_with
+      self.scope_inside_with_ = inside_with
 
     # Declare convenience variables.
     # Declare and allocate receiver (even for the global scope, and even
@@ -1464,20 +1462,20 @@ class Scope:
     # instead load them directly from the stack. Currently, the only
     # such parameter is 'this' which is passed on the stack when
     # invoking scripts
-    var = self.variables.Declare(self, JSObject("string", "this"), Variable.VAR, False, Variable.THIS)
-    var.rewrite = Slot(var, Slot.PARAMETER, -1)
-    self.receiver = VariableProxy(JSObject("string", "this"), True, False)
-    self.receiver.BindTo(var)
+    var = self.variables_.Declare(self, JSObject("string", "this"), Variable.VAR, False, Variable.THIS)
+    var.rewrite_ = Slot(var, Slot.PARAMETER, -1)
+    self.receiver_ = VariableProxy(JSObject("string", "this"), True, False)
+    self.receiver_.BindTo(var)
 
     if self.is_function_scope():
       # Declare 'arguments' variable which exists in all functions.
       # Note that it might never be accessed, in which case it won't be
       # allocated during variable allocation.
-      self.variables.Declare(self, JSObject("string", "arguments"),
-                   Variable.VAR, True, Variable.ARGUMENTS)
+      self.variables_.Declare(self, JSObject("string", "arguments"),
+                              Variable.VAR, True, Variable.ARGUMENTS)
 
   def LocalLookup(self, name):
-    return self.variables.Lookup(name)
+    return self.variables_.Lookup(name)
 
   def Lookup(self, name):
     scope = self
@@ -1489,88 +1487,77 @@ class Scope:
     return None
 
   def DeclareFunctionVar(self, name):
-    assert(self.is_function_scope() and self.function == None)
-    self.function = Variable(self, name, Variable.CONST, True, Variable.NORMAL)
-    return self.function
+    assert(self.is_function_scope() and self.function_ == None)
+    self.function_ = Variable(self, name, Variable.CONST, True, Variable.NORMAL)
+    return self.function_
 
   def DeclareLocal(self, name, mode):
     assert(mode == Variable.VAR or mode == Variable.CONST)
-    return self.variables.Declare(self, name, mode, True, Variable.NORMAL)
+    return self.variables_.Declare(self, name, mode, True, Variable.NORMAL)
 
   def DeclareGlobal(self, name):
     assert(self.is_global_scope())
-    return self.variables.Declare(self, name, Variable.DYNAMIC, True,
-                    Variable.NORMAL)
+    return self.variables_.Declare(self, name, Variable.DYNAMIC, True,
+                                   Variable.NORMAL)
 
   def AddParameter(self, var):
     assert(self.is_function_scope())
-    assert(self.LocalLookup(var.name) == var)
-    self.params.append(var)
+    assert(self.LocalLookup(var.name()) == var)
+    self.params_.append(var)
 
   def NewUnresolved(self, name, inside_with):
     # Note that we must not share the unresolved variables with
     # the same name because they may be removed selectively via
     # RemoveUnresolved().
     proxy = VariableProxy(name, False, inside_with)
-    self.unresolved.append(proxy)
+    self.unresolved_.append(proxy)
     return proxy
 
   def AddDeclaration(self, declaration):
-    self.decls.append(declaration)
-    #assert(False)
+    self.decls_.append(declaration)
 
-  def is_eval_scope(self):
-    return self.type == self.EVAL_SCOPE
-  def is_function_scope(self):
-    return self.type == self.FUNCTION_SCOPE
-  def is_global_scope(self):
-    return self.type == self.GLOBAL_SCOPE
+  def is_eval_scope(self): return self.type_ == self.EVAL_SCOPE
+  def is_function_scope(self): return self.type_ == self.FUNCTION_SCOPE
+  def is_global_scope(self): return self.type_ == self.GLOBAL_SCOPE
 
-  def inside_with(self):
-    return self.scope_inside_with
-  def contains_with(self):
-    return self.scope_contains_with
+  def inside_with(self): return self.scope_inside_with_
+  def contains_with(self): return self.scope_contains_with_
 
-  def outer_scope(self):
-    return self.outer_scope
+  def outer_scope(self): return self.outer_scope_
 
-  def receiver(self):
-    return self.receiver
+  def receiver(self): return self.receiver_
 
   def function(self):
     assert(self.is_function_scope())
-    return self.function
+    return self.function()
 
   def parameter(self, index):
     assert(self.is_function_scope())
-    return self.params[index]
+    return self.params_[index]
 
   def num_parameters(self):
-    return len(self.params)
+    return len(self.params_)
 
   # The local variable 'arguments' if we need to allocate it; NULL otherwise.
   # If arguments() exist, arguments_shadow() exists, too.
-  def arguments(self):
-    return self.arguments
+  def arguments(self): return self.arguments_
 
   # The '.arguments' shadow variable if we need to allocate it; NULL otherwise.
   # If arguments_shadow() exist, arguments() exists, too.
-  def arguments_shadow(self):
-    return self.arguments_shadow
+  def arguments_shadow(self): return self.arguments_shadow_
 
-  def declarations(self):
-    return self.decls
+  def declarations(self): return self.decls_
 
   def MustAllocate(self, var):
     # Give var a read/write use if there is a chance it might be accessed
     # via an eval() call.  This is only possible if the variable has a
     # visible name.
-    if (var.is_this() or len(var.name.value) > 0) and            \
-      (var.is_accessed_from_inner_scope or                     \
-       self.scope_calls_eval or self.inner_scope_calls_eval or \
-       self.scope_contains_with):
+    if (var.is_this() or len(var.name().value) > 0) and           \
+       (var.is_accessed_from_inner_scope_ or                      \
+        self.scope_calls_eval_ or self.inner_scope_calls_eval_ or \
+        self.scope_contains_with_):
       var.var_uses().RecordAccess(1)
-    # Global variables do not need to be allocated.
+      # Global variables do not need to be allocated.
       return not var.is_global() and var.var_uses().is_used()
 
   def MustAllocateInContext(self, var):
@@ -1580,14 +1567,14 @@ class Scope:
     # context.  Exception: temporary variables are not allocated in the
     # context.
     return \
-        var.mode != Variable.TEMPORARY and \
-        (var.is_accessed_from_inner_scope or
-         self.scope_calls_eval or self.inner_scope_calls_eval or
-         self.scope_contains_with or var.is_global())
+        var.mode() != Variable.TEMPORARY and \
+        (var.is_accessed_from_inner_scope_ or
+         self.scope_calls_eval_ or self.inner_scope_calls_eval_ or
+         self.scope_contains_with_ or var.is_global())
 
   def AllocateHeapSlot(self, var):
-    var.rewrite = Slot(var, Slot.CONTEXT, self.num_heap_slots)
-    self.num_heap_slots += 1
+    var.rewrite_ = Slot(var, Slot.CONTEXT, self.num_heap_slots_)
+    self.num_heap_slots_ += 1
 
   def AllocateParameterLocals(self):
     assert(self.is_function_scope())
@@ -1622,8 +1609,8 @@ class Scope:
 
       # We are using 'arguments'. Tell the code generator that is needs to
       # allocate the arguments object by setting 'arguments_'.
-      self.arguments = VariableProxy(JSObject("string", "arguments", False, False))
-      self.arguments.BindTo(arguments)
+      self.arguments_ = VariableProxy(JSObject("string", "arguments", False, False))
+      self.arguments_.BindTo(arguments)
 
       # We also need the '.arguments' shadow variable. Declare it and create
       # and bind the corresponding proxy. It's ok to declare it only now
@@ -1635,15 +1622,15 @@ class Scope:
       # variable may be allocated in the heap-allocated context (temporaries
       # are never allocated in the context).
       arguments_shadow = Variable(self, JSObject("string", ".arguments"),
-                    Variable.INTERNAL, True, Variable.ARGUMENTS)
-      self.arguments_shadow = VariableProxy(JSObject("string", ".arguments"), False, False)
-      self.arguments_shadow.BindTo(arguments_shadow)
+                                  Variable.INTERNAL, True, Variable.ARGUMENTS)
+      self.arguments_shadow_ = VariableProxy(JSObject("string", ".arguments"), False, False)
+      self.arguments_shadow_.BindTo(arguments_shadow)
       #temps_.Add(arguments_shadow);
 
       # Allocate the parameters by rewriting them into '.arguments[i]' accesses.
-      for i in range(0, len(self.params)):
-        var = self.params[i]
-        assert(var.scope == self)
+      for i in range(0, len(self.params_)):
+        var = self.params_[i]
+        assert(var.scope() == self)
         if self.MustAllocate(var):
           assert(False)
 #                    if self.MustAllocateInContext(var):
@@ -1664,33 +1651,33 @@ class Scope:
       # If it does, and if it is not copied into the context object, it must
       # receive the highest parameter index for that parameter; thus iteration
       # order is relevant!
-      for i in range(0, len(self.params)):
-        var = self.params[i]
-        assert(var.scope == self)
+      for i in range(0, len(self.params_)):
+        var = self.params_[i]
+        assert(var.scope() == self)
         if self.MustAllocate(var):
           if self.MustAllocateInContext(var):
-            assert(var.rewrite == None or \
-                 (var.slot != None and var.slot.type == Slot.CONTEXT))
-            if var.rewrite == None:
+            assert(var.rewrite_ == None or \
+                   (var.slot() != None and var.slot().type() == Slot.CONTEXT))
+            if var.rewrite_ == None:
               # Only set the heap allocation if the parameter has not
               # been allocated yet.
               self.AllocateHeapSlot(var)
           else:
-            assert(var.rewrite == None or
-                 (var.slot != None and
-                var.slot.type == Slot.PARAMETER))
+            assert(var.rewrite_ == None or
+                   (var.slot() != None and
+                    var.slot().type() == Slot.PARAMETER))
             # Set the parameter index always, even if the parameter
             # was seen before! (We need to access the actual parameter
             # supplied for the last occurrence of a multiply declared
             # parameter.)
-            var.rewrite = Slot(var, Slot.PARAMETER, i)
+            var.rewrite_ = Slot(var, Slot.PARAMETER, i)
 
   def AllocateNonParameterLocal(self, var):
-    assert(var.scope == self)
-    assert(var.rewrite == None or \
+    assert(var.scope() == self)
+    assert(var.rewrite_ == None or \
          (not var.IsVariable(JSObject("string", "result"))) or
-         (var.slot == None or var.slot.type != Slot.LOCAL))
-    if var.rewrite == None and self.MustAllocate(var):
+         (var.slot() == None or var.slot().type() != Slot.LOCAL))
+    if var.rewrite_ == None and self.MustAllocate(var):
       if self.MustAllocateInContext(var):
         self.AllocateHeapSlot(var)
       else:
@@ -1699,41 +1686,40 @@ class Scope:
 
   def AllocateNonParameterLocals(self):
     # All variables that have no rewrite yet are non-parameter locals.
-    for i in range(0, len(self.temps)):
-      self.AllocateNonParameterLocal(self.temps[i])
+    for i in range(0, len(self.temps_)):
+      self.AllocateNonParameterLocal(self.temps_[i])
 
-    for key in self.variables:
-      var = self.variables[key]
+    for key in self.variables_:
+      var = self.variables_[key]
       self.AllocateNonParameterLocal(var)
 
     # For now, function_ must be allocated at the very end.  If it gets
     # allocated in the context, it must be the last slot in the context,
     # because of the current ScopeInfo implementation (see
     # ScopeInfo::ScopeInfo(FunctionScope* scope) constructor).
-    if self.function != None:
-      self.AllocateNonParameterLocal(self.function)
+    if self.function_ != None:
+      self.AllocateNonParameterLocal(self.function_)
 
   def AllocateVariablesRecursively(self):
     class Context:
       MIN_CONTEXT_SLOTS = 5
 
     # The number of slots required for variables.
-    self.num_stack_slots = 0
-    self.num_heap_slots = Context.MIN_CONTEXT_SLOTS
+    self.num_stack_slots_ = 0
+    self.num_heap_slots_ = Context.MIN_CONTEXT_SLOTS
 
     # Allocate variables for inner scopes.
-    for i in range(0, len(self.inner_scopes)):
-      self.inner_scopes[i].AllocateVariablesRecursively()
+    for i in range(0, len(self.inner_scopes_)):
+      self.inner_scopes_[i].AllocateVariablesRecursively()
 
     # Allocate variables for this scope.
     # Parameters must be allocated first, if any.
-    if self.is_function_scope():
-      self.AllocateParameterLocals()
+    if self.is_function_scope(): self.AllocateParameterLocals()
     self.AllocateNonParameterLocals()
 
     # Allocate context if necessary.
     must_have_local_context = False
-    if self.scope_calls_eval or self.scope_contains_with:
+    if self.scope_calls_eval_ or self.scope_contains_with_:
       # The context for the eval() call or 'with' statement in this scope.
       # Unless we are in the global or an eval scope, we need a local
       # context even if we didn't statically allocate any locals in it,
@@ -1743,16 +1729,16 @@ class Scope:
 
     # If we didn't allocate any locals in the local context, then we only
     # need the minimal number of slots if we must have a local context.
-    if self.num_heap_slots == Context.MIN_CONTEXT_SLOTS and \
+    if self.num_heap_slots_ == Context.MIN_CONTEXT_SLOTS and \
         not must_have_local_context:
-      self.num_heap_slots = 0
+      self.num_heap_slots_ = 0
 
     # Allocation done.
-    assert(self.num_heap_slots == 0 or  \
-         self.num_heap_slots >= Context.MIN_CONTEXT_SLOTS)
+    assert(self.num_heap_slots_ == 0 or  \
+           self.num_heap_slots_ >= Context.MIN_CONTEXT_SLOTS)
 
   def AllocateVariables(self, context):
-    assert(self.outer_scope == None)
+    assert(self.outer_scope_ == None)
 
     # 1) Propagate scope information.
     # If we are in an eval scope, we may have other outer scopes about
@@ -1765,8 +1751,7 @@ class Scope:
 
     # 2) Resolve variables.
     global_scope = None;
-    if self.is_global_scope():
-      global_scope = self;
+    if self.is_global_scope(): global_scope = self;
     self.ResolveVariablesRecursively(global_scope, context);
 
     # 3) Allocate variables.
@@ -1774,54 +1759,53 @@ class Scope:
 
   def PropagateScopeInfo(self, outer_scope_calls_eval, outer_scope_is_eval_scope):
     if outer_scope_calls_eval:
-      self.outer_scope_calls = True
+      self.outer_scope_calls_ = True
 
     if outer_scope_is_eval_scope:
-      self.outer_scope_is_eval_scope = True
+      self.outer_scope_is_eval_scope_ = True
 
-    calls_eval = self.scope_calls_eval or self.outer_scope_calls_eval
-    is_eval = self.is_eval_scope() or outer_scope_is_eval_scope
-    for i in range(0, len(self.inner_scopes)):
-      inner_scope = self.inner_scopes[i]
+    calls_eval = self.scope_calls_eval_ or self.outer_scope_calls_eval_
+    is_eval = self.is_eval_scope() or self.outer_scope_is_eval_scope_
+    for i in range(0, len(self.inner_scopes_)):
+      inner_scope = self.inner_scopes_[i]
       if inner_scope.PropagateScopeInfo(calls_eval, is_eval):
-        self.inner_scope_calls_eval = True
-      if inner_scope.force_eager_compilation:
-        force_eager_compilation = True
+        self.inner_scope_calls_eval_ = True
+      if inner_scope.force_eager_compilation_:
+        force_eager_compilation_ = True
 
-    return self.scope_calls_eval or self.inner_scope_calls_eval
+    return self.scope_calls_eval_ or self.inner_scope_calls_eval_
 
   def ResolveVariablesRecursively(self, global_scope, context):
     assert(global_scope == None or global_scope.is_global_scope())
 
     # Resolve unresolved variables for this scope.
-    for i in range(0, len(self.unresolved)):
-      self.ResolveVariable(global_scope, context, self.unresolved[i])
+    for i in range(0, len(self.unresolved_)):
+      self.ResolveVariable(global_scope, context, self.unresolved_[i])
 
     # Resolve unresolved variables for inner scopes.
-    for i in range(0, len(self.inner_scopes)):
-      self.inner_scopes[i].ResolveVariablesRecursively(global_scope, context)
+    for i in range(0, len(self.inner_scopes_)):
+      self.inner_scopes_[i].ResolveVariablesRecursively(global_scope, context)
 
   def ResolveVariable(self, global_scope, context, proxy):
     assert(global_scope == None or global_scope.is_global_scope())
 
     # If the proxy is already resolved there's nothing to do
     # (functions and consts may be resolved by the parser).
-    if proxy.var != None:
+    if proxy.var() != None:
       return
 
     # Otherwise, try to resolve the variable.
     invalidated_local = [None]
-    # NOTE(keisuke):Smells Bad!!
-    var = self.LookupRecursive(proxy.name, False, invalidated_local)
+    var = self.LookupRecursive(proxy.name(), False, invalidated_local)
 
-    if proxy.inside_with:
+    if proxy.inside_with():
       # If we are inside a local 'with' statement, all bets are off
       # and we cannot resolve the proxy to a local variable even if
       # we found an outer matching variable.
       # Note that we must do a lookup anyway, because if we find one,
       # we must mark that variable as potentially accessed from this
       # inner scope (the property may not be in the 'with' object).
-      var = self.NonLocal(proxy.name, Variable.DYNAMIC)
+      var = self.NonLocal(proxy.name(), Variable.DYNAMIC)
     else:
       # We are not inside a local 'with' statement.
 
@@ -1834,40 +1818,40 @@ class Scope:
         # or we don't know about the outer scope (because we are
         # in an eval scope).
         if self.is_global_scope() or \
-            not (self.scope_inside_with or self.outer_scope_is_eval_scope or
-               self.scope_calls_eval or self.outer_scope_calls_eval):
+            not (self.scope_inside_with_ or self.outer_scope_is_eval_scope_ or
+               self.scope_calls_eval_ or self.outer_scope_calls_eval_):
           # We must have a global variable.
           assert(global_scope != None)
-          var = global_scope.DeclareGlobal(proxy.name)
+          var = global_scope.DeclareGlobal(proxy.name())
 
-        elif self.scope_inside_with:
+        elif self.scope_inside_with_:
           # If we are inside a with statement we give up and look up
           # the variable at runtime.
-          var = self.NonLocal(proxy.name, Variable.DYNAMIC);
+          var = self.NonLocal(proxy.name(), Variable.DYNAMIC);
 
         elif invalidated_local[0] != None:
           # No with statements are involved and we found a local
           # variable that might be shadowed by eval introduced
           # variables.
-          var = self.NonLocal(proxy.name, Variable.DYNAMIC_LOCAL)
+          var = self.NonLocal(proxy.name(), Variable.DYNAMIC_LOCAL)
           var.set_local_if_not_shadowed(invalidated_local)
 
-        elif self.outer_scope_is_eval_scope:
+        elif self.outer_scope_is_eval_scope_:
           # No with statements and we did not find a local and the code
           # is executed with a call to eval.  The context contains
           # scope information that we can use to determine if the
           # variable is global if it is not shadowed by eval-introduced
           # variables.
-          if context.GlobalIfNotShadowedByEval(proxy.name):
-            var = self.NonLocal(proxy.name, Variable.DYNAMIC_GLOBAL)
+          if context.GlobalIfNotShadowedByEval(proxy.name()):
+            var = self.NonLocal(proxy.name(), Variable.DYNAMIC_GLOBAL)
           else:
-            var = self.NonLocal(proxy.name, Variable.DYNAMIC);
+            var = self.NonLocal(proxy.name(), Variable.DYNAMIC);
         else:
           # No with statements and we did not find a local and the code
           # is not executed with a call to eval.  We know that this
           # variable is global unless it is shadowed by eval-introduced
           # variables.
-          var = self.NonLocal(proxy.name, Variable.DYNAMIC_GLOBAL)
+          var = self.NonLocal(proxy.name(), Variable.DYNAMIC_GLOBAL)
     proxy.BindTo(var)
 
   # Lookup a variable starting with this scope. The result is either
@@ -1881,7 +1865,7 @@ class Scope:
     # variable may not be the correct one (the 'eval' may introduce a
     # property with the same name). In that case, remember that the variable
     # found is just a guess.
-    guess = self.scope_calls_eval
+    guess = self.scope_calls_eval_
 
     # Try to find the variable in this scope.
     var = self.LocalLookup(name)
@@ -1903,17 +1887,17 @@ class Scope:
       # between this scope and the outer scope. (ECMA-262, 3rd., requires that
       # the name of named function literal is kept in an intermediate scope
       # in between this scope and the next outer scope.)
-      if self.function != None and self.function.name.value == name.value:
-        var = self.function
+      if self.function_ != None and self.function_.name().value == name.value:
+        var = self.function_
 
-      elif self.outer_scope != None:
-        var = self.outer_scope.LookupRecursive(name, True, invalidated_local)
+      elif self.outer_scope_ != None:
+        var = self.outer_scope_.LookupRecursive(name, True, invalidated_local)
         # We may have found a variable in an outer scope. However, if
         # the current scope is inside a 'with', the actual variable may
         # be a property introduced via the 'with' statement. Then, the
         # variable we may have found is just a guess.
-        if self.scope_inside_with:
-          guess = true
+        if self.scope_inside_with_:
+          guess = True
 
       # If we did not find a variable, we are done.
       if var == None:
@@ -1923,7 +1907,7 @@ class Scope:
 
     # If this is a lookup from an inner scope, mark the variable.
     if inner_lookup:
-      var.is_accessed_from_inner_scope = True
+      var.is_accessed_from_inner_scope_ = True
 
     # If the variable we have found is just a guess, invalidate the
     # result. If the found variable is local, record that fact so we
@@ -1984,10 +1968,10 @@ class Parser:
     return False
 
   def Precedence(self, tok, accept_IN):
-    if tok == "IN" and not accept_IN:
+    if tok == Token.IN and not accept_IN:
       assert(False)
       return 0
-    return Precedence(tok)
+    return Token.Precedence(tok)
 
   def peek(self):
     return self.scanner.peek()
@@ -1996,7 +1980,8 @@ class Parser:
     return self.scanner.Next()
 
   def ReportError(self, expected):
-    print "%s expected but %s comes." % (expected, self.scanner.current_.token)
+    print "%s expected but %s comes." % (Token.String(expected),
+                                         Token.String(self.scanner.current_.token))
 #    loc = self.scanner.location().beg_pos
 #    for line in self.scanner.source_.split('\n'):
 #      if 0 <= loc and loc <= len(line):
@@ -2017,14 +2002,14 @@ class Parser:
     # Check for automatic semicolon insertion according to
     # the rules given in ECMA-262, section 7.9, page 21.
     tok = self.peek()
-    if tok == "SEMICOLON":
+    if tok == Token.SEMICOLON:
       self.Next()
       return
     if self.scanner.has_line_terminator_before_next_ or \
-          tok == "RBRACE" or \
-          tok == "EOS":
+          tok == Token.RBRACE or \
+          tok == Token.EOS:
       return
-    self.Expect("SEMICOLON")
+    self.Expect(Token.SEMICOLON)
 
   def Consume(self, token):
     next = self.Next()
@@ -2141,7 +2126,7 @@ class Parser:
     scope = self.NewScope(self.top_scope, type, self.inside_with())
     with LexicalScope(self, scope) as lexical_scope:
       body = []
-      self.ParseSourceElements(body, "EOS")
+      self.ParseSourceElements(body, Token.EOS)
       result[0] = FunctionLiteral(no_name, self.top_scope, body, 0, False)
 
     top = result[0].scope()
@@ -2194,20 +2179,20 @@ class Parser:
 
       #  FormalParameterList ::
       #    '(' (Identifier)*[','] ')'
-      self.Expect("LPAREN")
-      done = (self.peek() == "RPAREN")
+      self.Expect(Token.LPAREN)
+      done = (self.peek() == Token.RPAREN)
       while not done:
         param_name = self.ParseIdentifier()
         self.top_scope.AddParameter(self.top_scope.DeclareLocal(param_name, Variable.VAR))
         num_parameters += 1
 
-        done = (self.peek() == "RPAREN")
+        done = (self.peek() == Token.RPAREN)
         if not done:
-          self.Expect("COMMA")
+          self.Expect(Token.COMMA)
 
-      self.Expect("RPAREN")
+      self.Expect(Token.RPAREN)
 
-      self.Expect("LBRACE")
+      self.Expect(Token.LBRACE)
       body = []
 
       # If we have a named function expression, we add a local variable
@@ -2218,14 +2203,14 @@ class Parser:
       # instead of Variables and Proxis as is the case now.
       if function_name != None and function_name.value != "":
         fvar = self.top_scope.DeclareFunctionVar(function_name)
-        fproxy = self.top_scope.NewUnresolved(function_name, inside_with())
+        fproxy = self.top_scope.NewUnresolved(function_name, self.inside_with())
         fproxy.BindTo(fvar)
-        body.append(ExpressionStatement(Assignment("INIT_VAR",
+        body.append(ExpressionStatement(Assignment(Token.INIT_VAR,
                                                    fproxy, ThisFunction())))
 
-      self.ParseSourceElements(body, "RBRACE")
+      self.ParseSourceElements(body, Token.RBRACE)
 
-      self.Expect("RBRACE")
+      self.Expect(Token.RBRACE)
 
       function_literal[0] = FunctionLiteral(name, self.top_scope, body,
                           num_parameters, function_name != "")
@@ -2237,26 +2222,26 @@ class Parser:
     #   '(' (AssignmentExpression)*[','] ')'
 
     result = []
-    self.Expect("LPAREN")
-    done = (self.peek() == "RPAREN")
+    self.Expect(Token.LPAREN)
+    done = (self.peek() == Token.RPAREN)
     while not done:
       argument = self.ParseAssignmentExpression(True)
       result.append(argument)
-      done = (self.peek() == "RPAREN");
+      done = (self.peek() == Token.RPAREN);
       if not done:
-        self.Expect("COMMA")
-    self.Expect("RPAREN")
+        self.Expect(Token.COMMA)
+    self.Expect(Token.RPAREN)
     return result
 
   def ParseIdentifier(self):
-    if self.peek() == "IDENTIFIER":
-      self.Expect("IDENTIFIER")
+    if self.peek() == Token.IDENTIFIER:
+      self.Expect(Token.IDENTIFIER)
       return JSObject("string", self.scanner.literal_string())
     else:
       return JSObject("string", "")
 
   def ParseFunctionDeclaration(self):
-    self.Expect("FUNCTION")
+    self.Expect(Token.FUNCTION)
     name = self.ParseIdentifier()
     fun = self.ParseFunctionLiteral(name, Parser.DECLARATION)
     self.Declare(name, Variable.VAR, fun, True)
@@ -2281,10 +2266,10 @@ class Parser:
     #   ('var' | 'const') (Identifier ('=' AssignmentExpression)?)+[',']
     mode = Variable.VAR
     is_const = False
-    if self.peek() == "VAR":
-      self.Consume("VAR")
-    elif self.peek() == "CONST":
-      self.Consume("CONST")
+    if self.peek() == Token.VAR:
+      self.Consume(Token.VAR)
+    elif self.peek() == Token.CONST:
+      self.Consume(Token.CONST)
       mode = Variable.CONST
       is_const = True
     else:
@@ -2309,7 +2294,7 @@ class Parser:
     while True:
       # Parse variable name.
       if nvars > 0:
-        self.Consume("COMMA")
+        self.Consume(Token.COMMA)
       name = self.ParseIdentifier()
 
       # Declare variable.
@@ -2357,8 +2342,8 @@ class Parser:
 
       value = None
       position = -1
-      if self.peek() == "ASSIGN":
-        self.Expect("ASSIGN")
+      if self.peek() == Token.ASSIGN:
+        self.Expect(Token.ASSIGN)
         value = self.ParseAssignmentExpression(accept_IN)
 
       # Make sure that 'const c' actually initializes 'c' to undefined
@@ -2423,12 +2408,12 @@ class Parser:
       # for constant lookups is always the function context, while it is
       # the top context for variables). Sigh...
       if value != None:
-        op = "INIT_CONST" if is_const else "INIT_VAR"
+        op = Token.INIT_CONST if is_const else Token.INIT_VAR
         assignment = Assignment(op, last_var, value)
         if block:
           block.AddStatement(ExpressionStatement(assignment))
 
-      if self.peek() != "COMMA":
+      if self.peek() != Token.COMMA:
         break
 
     if not is_const and nvars == 1:
@@ -2450,10 +2435,10 @@ class Parser:
     #   Expression ',' AssignmentExpression
 
     result = self.ParseAssignmentExpression(accept_IN)
-    while self.peek() == "COMMA":
-      self.Expect("COMMA")
+    while self.peek() == Token.COMMA:
+      self.Expect(Token.COMMA)
       right = self.ParseAssignmentExpression(accept_IN)
-      result = BinaryOperation("COMMA", result, right)
+      result = BinaryOperation(Token.COMMA, result, right)
 
     return result
 
@@ -2465,7 +2450,7 @@ class Parser:
 
     expression = self.ParseConditionalExpression(accept_IN);
 
-    if not IsAssignmentOp(self.peek()):
+    if not Token.IsAssignmentOp(self.peek()):
       # Parsed conditional expression only (no assignment).
       return expression
 
@@ -2503,14 +2488,14 @@ class Parser:
 
     # We start using the binary expression parser for prec >= 4 only!
     expression = self.ParseBinaryExpression(4, accept_IN)
-    if self.peek() != "CONDITIONAL":
+    if self.peek() != Token.CONDITIONAL:
       return expression
-    self.Consume("CONDITIONAL")
+    self.Consume(Token.CONDITIONAL)
     # In parsing the first assignment expression in conditional
     # expressions we always accept the 'in' keyword; see ECMA-262,
     # section 11.12, page 58.
     left = self.ParseAssignmentExpression(True)
-    self.Expect("COLON")
+    self.Expect(Token.COLON)
     right = self.ParseAssignmentExpression(accept_IN)
     return Conditional(expression, left, right)
 
@@ -2526,42 +2511,42 @@ class Parser:
         y = self.ParseBinaryExpression(prec1 + 1, accept_IN)
 
         # Compute some expressions involving only number literals.
-        if x and isinstance(x, Literal) and x.handle.IsNumber() and \
-           y and isinstance(y, Literal) and y.handle.IsNumber():
-           x_val = x.AsLiteral().handle.Number()
-           y_val = y.AsLiteral().handle.Number()
+        if x and isinstance(x, Literal) and x.handle().IsNumber() and \
+           y and isinstance(y, Literal) and y.handle().IsNumber():
+           x_val = x.AsLiteral().handle().Number()
+           y_val = y.AsLiteral().handle().Number()
 
-           if op == "ADD":
+           if op == Token.ADD:
              x = self.NewNumberLiteral(x_val + y_val)
              continue
-           elif op == "SUB":
+           elif op == Token.SUB:
              x = self.NewNumberLiteral(x_val - y_val)
              continue
-           elif op == "MUL":
+           elif op == Token.MUL:
              x = self.NewNumberLiteral(x_val * y_val)
              continue
-           elif op == "DIV":
+           elif op == Token.DIV:
              x = self.NewNumberLiteral(x_val / y_val)
              continue
-           elif op == "BIT_OR":
+           elif op == Token.BIT_OR:
              x = self.NewNumberLiteral(DoubleToInt32(x_val) | DoubleToInt32(y_val))
              continue
-           elif op == "BIT_AND":
+           elif op == Token.BIT_AND:
              x = self.NewNumberLiteral(DoubleToInt32(x_val) & DoubleToInt32(y_val))
              continue
-           elif op == "BIT_XOR":
+           elif op == Token.BIT_XOR:
              x = self.NewNumberLiteral(DoubleToInt32(x_val) ^ DoubleToInt32(y_val))
              continue
-           elif op == "SHL":
+           elif op == Token.SHL:
              value = DoubleToInt32(x_val) << (DoubleToInt32(y_val) & 0x1f)
              x = self.NewNumberLiteral(value)
              continue
-           elif op == "SHR":
+           elif op == Token.SHR:
              shift = DoubleToInt32(y_val) & 0x1f
              value = DoubleToUint32(x_val) >> shift
              x = self.NewNumberLiteral(value)
              continue
-           elif op == "SAR":
+           elif op == Token.SAR:
              shift = DoubleToInt32(y_val) & 0x1f
              value = ArithmeticShiftRight(DoubleToInt32(x_val), shift)
              x = self.NewNumberLiteral(value)
@@ -2570,17 +2555,17 @@ class Parser:
         # For now we distinguish between comparisons and other binary
         # operations.  (We could combine the two and get rid of this
         # code an AST node eventually.)
-        if IsCompareOp(op):
+        if Token.IsCompareOp(op):
           # We have a comparison.
           cmp = op
-          if op == "NE":
-            cmp = "EQ"
-          elif op == "NE_STRICT":
-            cmp = "EQ_STRICT"
+          if op == Token.NE:
+            cmp = Token.EQ
+          elif op == Token.NE_STRICT:
+            cmp = Token.EQ_STRICT
           x = CompareOperation(cmp, x, y)
           if cmp != op:
             # The comparison was negated - add a NOT.
-            x = UnaryOperation("NOT", x)
+            x = UnaryOperation(Token.NOT, x)
         else:
           # We have a "normal" binary operation.
           x = BinaryOperation(op, x, y);
@@ -2601,7 +2586,7 @@ class Parser:
     #   '!' UnaryExpression
 
     op = self.peek()
-    if IsUnaryOp(op):
+    if Token.IsUnaryOp(op):
       op = self.Next()
       expression = self.ParseUnaryExpression()
 
@@ -2609,16 +2594,16 @@ class Parser:
       if expression != None and expression.AsLiteral() and \
          expression.AsLiteral().handle().IsNumber():
         value = expression.AsLiteral().handle().Number()
-        if op == "ADD":
+        if op == Token.ADD:
           return expression
-        elif op == "SUB":
+        elif op == Token.SUB:
           return NewNumberLiteral(-value)
-        elif op == "BIT_NOT":
+        elif op == Token.BIT_NOT:
           return NewNumberLiteral(~DoubleToInt32(value))
 
       return UnaryOperation(op, expression)
 
-    elif IsCountOp(op):
+    elif Token.IsCountOp(op):
       op = self.Next()
       expression = self.ParseUnaryExpression()
       # Signal a reference error if the expression is an invalid
@@ -2636,7 +2621,8 @@ class Parser:
     #   LeftHandSideExpression ('++' | '--')?
 
     expression = self.ParseLeftHandSideExpression()
-    if not self.scanner.has_line_terminator_before_next() and IsCountOp(self.peek()):
+    if not self.scanner.has_line_terminator_before_next() and \
+          Token.IsCountOp(self.peek()):
       # Signal a reference error if the expression is an invalid
       # left-hand side expression.  We could report this as a syntax
       # error here but for compatibility with JSC we choose to report the
@@ -2654,19 +2640,19 @@ class Parser:
     #   (NewExpression | MemberExpression) ...
 
     result = None
-    if self.peek() == "NEW":
+    if self.peek() == Token.NEW:
       result = self.ParseNewExpression()
     else:
       result = self.ParseMemberExpression()
 
     while True:
       peek = self.peek()
-      if peek == "LBRACK":
-        self.Consume("LBRACK")
+      if peek == Token.LBRACK:
+        self.Consume(Token.LBRACK)
         index = self.ParseExpression(True)
         result = self.NewProperty(result, index)
-        Expect("RBRACK")
-      elif peek == "LPAREN":
+        Expect(Token.RBRACK)
+      elif peek == Token.LPAREN:
         args = self.ParseArguments()
         # Keep track of eval() calls since they disable all local variable
         # optimizations.
@@ -2685,8 +2671,8 @@ class Parser:
             self.top_scope.RecordEvalCall()
         result = self.NewCall(result, args)
 
-      elif peek == "PERIOD":
-        self.Consume("PERIOD")
+      elif peek == Token.PERIOD:
+        self.Consume(Token.PERIOD)
         name = self.ParseIdentifier()
         result = self.NewProperty(result, Literal("string", name))
 
@@ -2703,10 +2689,10 @@ class Parser:
 
     # Parse the initial primary or function expression.
     result = None
-    if self.peek() == "FUNCTION":
-      self.Expect("FUNCTION")
+    if self.peek() == Token.FUNCTION:
+      self.Expect(Token.FUNCTION)
       name = JSObject("string", "")
-      if self.peek() == "IDENTIFIER":
+      if self.peek() == Token.IDENTIFIER:
         name = self.ParseIdentifier()
       result = self.ParseFunctionLiteral(name, self.NESTED)
     else:
@@ -2729,7 +2715,7 @@ class Parser:
 
     result = None
     peek = self.peek()
-    if peek == "THIS":
+    if peek == Token.THIS:
       assert(False)
 #    case Token::THIS: {
 #      Consume(Token::THIS);
@@ -2743,51 +2729,51 @@ class Parser:
 #      break;
 #    }
 
-    elif peek == "NULL_LITERAL":
-      self.Consume("NULL_LITERAL")
+    elif peek == Token.NULL_LITERAL:
+      self.Consume(Token.NULL_LITERAL)
       result = Literal(JSNULL)
 
-    elif peek == "TRUE_LITERAL":
-      self.Consume("TRUE_LITERAL")
+    elif peek == Token.TRUE_LITERAL:
+      self.Consume(Token.TRUE_LITERAL)
       result = Literal(JSTRUE)
 
-    elif peek == "FALSE_LITERAL":
-      self.Consume("FALSE_LITERAL")
+    elif peek == Token.FALSE_LITERAL:
+      self.Consume(Token.FALSE_LITERAL)
       result = Literal(JSFALSE)
 
-    elif peek == "IDENTIFIER":
+    elif peek == Token.IDENTIFIER:
       name = self.ParseIdentifier()
       result = self.top_scope.NewUnresolved(name, self.inside_with())
 
-    elif peek == "NUMBER":
-      self.Consume("NUMBER")
+    elif peek == Token.NUMBER:
+      self.Consume(Token.NUMBER)
       #value = StringToDouble(self.scanner.literal_string(), ALLOW_HEX | ALLOW_OCTALS)
       value = int(self.scanner.literal_string())
       result = self.NewNumberLiteral(value)
 
-    elif peek == "STRING":
-      self.Consume("STRING")
+    elif peek == Token.STRING:
+      self.Consume(Token.STRING)
       symbol = self.scanner.literal_string()
       result = Literal(JSObject("string", symbol))
 
-    elif peek == "ASSIGN_DIV":
+    elif peek == Token.ASSIGN_DIV:
       result = self.ParseRegExpLiteral(True)
 
-    elif peek == "DIV":
+    elif peek == Token.DIV:
       result = self.ParseRegExpLiteral(False)
 
-    elif peek == "LBRACK":
+    elif peek == Token.LBRACK:
       result = self.ParseArrayLiteral()
 
-    elif peek == "LBRACE":
+    elif peek == Token.LBRACE:
       result = self.ParseObjectLiteral()
 
-    elif peek == "LPAREN":
-      self.Consume("LPAREN")
+    elif peek == Token.LPAREN:
+      self.Consume(Token.LPAREN)
       result = self.ParseExpression(True)
-      self.Expect("RPAREN")
+      self.Expect(Token.RPAREN)
 
-    elif peek == "MOD":
+    elif peek == Token.MOD:
       if self.allow_natives_syntax or self.extension != None:
         result = self.ParseV8Intrinsic()
       else:
@@ -2815,10 +2801,10 @@ class Parser:
     # Consume the return token. It is necessary to do the before
     # reporting any errors on it, because of the way errors are
     # reported (underlining).
-    self.Expect("RETURN")
+    self.Expect(Token.RETURN)
 
     tok = self.peek()
-    if tok == "SEMICOLON" or tok == "RBRACE" or tok == "EOS":
+    if tok == Token.SEMICOLON or tok == Token.RBRACE or tok == Token.EOS:
       return ReturnStatement(self.GetLiteralUndefined())
 
     expr = self.ParseExpression(True)
@@ -2831,7 +2817,7 @@ class Parser:
     #   Identifier ':' Statement
 
     expr = self.ParseExpression(True)
-    if self.peek() == "COLON" and expr and \
+    if self.peek() == Token.COLON and expr and \
         expr.AsVariableProxy() != None and \
         not expr.AsVariableProxy().is_this():
       assert(False)  # NOTE(keisuke): short cut
@@ -2844,13 +2830,13 @@ class Parser:
     # IfStatement ::
     #   'if' '(' Expression ')' Statement ('else' Statement)?
 
-    self.Expect("IF")
-    self.Expect("LPAREN")
+    self.Expect(Token.IF)
+    self.Expect(Token.LPAREN)
     condition = self.ParseExpression(True)
-    self.Expect("RPAREN")
+    self.Expect(Token.RPAREN)
     then_statement = self.ParseStatement(labels)
     else_statement = None
-    if self.peek() == "ELSE":
+    if self.peek() == Token.ELSE:
       self.Next()
       else_statement = self.ParseStatement(labels)
     elif True: #!is_pre_parsing_) {
@@ -2860,47 +2846,47 @@ class Parser:
   def ParseStatement(self, labels):
     stmt = None
     peek = self.peek()
-    if peek == "LBRACE":
+    if peek == Token.LBRACE:
       return self.ParseBlock(labels)
 
-    elif peek == "CONST" or peek == "VAR":
+    elif peek == Token.CONST or peek == Token.VAR:
       stmt = self.ParseVariableStatement()
 
-    elif peek == "SEMICOLON":
+    elif peek == Token.SEMICOLON:
       self.Next()
       return None
 
-    elif peek == "IF":
+    elif peek == Token.IF:
       stmt = self.ParseIfStatement(labels)
 
-    elif peek == "DO":
+    elif peek == Token.DO:
       stmt = self.ParseDoWhileStatement(labels)
 
-    elif peek == "WHILTE":
+    elif peek == Token.WHILE:
       stmt = self.ParseWhileStatement(labels)
 
-    elif peek == "FOR":
+    elif peek == Token.FOR:
       stmt = self.ParseForStatement(labels)
 
-    elif peek == "CONTINUE":
+    elif peek == Token.CONTINUE:
       stmt = self.ParseContinueStatement(o);
 
-    elif peek == "BREAK":
+    elif peek == Token.BREAK:
       stmt = self.ParseBreakStatement(labels);
 
-    elif peek == "RETURN":
+    elif peek == Token.RETURN:
       stmt = self.ParseReturnStatement();
 
-    elif peek == "WITH":
+    elif peek == Token.WITH:
       stmt = self.ParseWithStatement(labels);
 
-    elif peek == "SWITCH":
+    elif peek == Token.SWITCH:
       stmt = self.ParseSwitchStatement(labels);
 
-    elif peek == "THROW":
+    elif peek == Token.THROW:
       stmt = self.ParseThrowStatement();
 
-    elif peek == "TRY":
+    elif peek == Token.TRY:
       # NOTE: It is somewhat complicated to have labels on
       # try-statements. When breaking out of a try-finally statement,
       # one must take great care not to treat it as a
@@ -2916,13 +2902,13 @@ class Parser:
 #            return result;
       assert(False)
 
-    elif peek == "FUNCTION":
+    elif peek == Token.FUNCTION:
       return self.ParseFunctionDeclaration()
 
-    elif peek == "NATIVE":
+    elif peek == Token.NATIVE:
       return self.ParseNativeDeclaration()
 
-    elif peek == "DEBUGGER":
+    elif peek == Token.DEBUGGER:
       stmt = self.self.ParseDebuggerStatement()
 
     else:
@@ -2931,11 +2917,33 @@ class Parser:
     return stmt
 
 class AstVisitor:
-  def Visit(self, node):
-    node.Accept(self)
+  class LexicalScope:
+    def __init__(self, visitor, scope):
+      self.activated_ = True
+      self.visitor_ = visitor
+      self.prev_scope_ = visitor.current_scope_
+      visitor.current_scope_ = scope
 
-class Printer(AstVisitor):
+    def __enter__(self): pass
+
+    def __exit__(self, *e):
+      if self.activated_:
+        self.activated_ = False
+        self.visitor_.current_scope_ = self.prev_scope_
+
+  def __init__(self):
+    self.current_scope_ = None
+
+  def Visit(self, node):
+    if isinstance(node, FunctionLiteral):
+      with AstVisitor.LexicalScope(self, node.scope()) as lexical_scope:
+        node.Accept(self)
+    else:
+      node.Accept(self)
+
+class PrettyPrinter(AstVisitor):
   def __init__(self, print_types = False):
+    AstVisitor.__init__(self)
     self.print_types = print_types
     self.nest = 0
     self.buffer = ""
@@ -2969,13 +2977,15 @@ class Printer(AstVisitor):
       self.W("true")
     elif value == JSFALSE:
       self.W("false")
-    elif value.IsNumber:
+    elif value.IsNumber():
       self.W(str(value.value))
+    elif value.IsString():
+      self.W(value.value)
     else:
       self.W("<unknown literal>")
 
   def VisitLiteral(self, node):
-    self.PrintLiteral(node.handle, node.handle.IsString())
+    self.PrintLiteral(node.handle(), node.handle().IsString())
     if self.print_types:
       self.PrintTypes(node)
 
@@ -2984,15 +2994,15 @@ class Printer(AstVisitor):
     for i in range(0, scope.num_parameters()):
       if i > 0:
         self.W(", ")
-      self.PrintLiteral(scope.parameter(i).name, False)
+      self.PrintLiteral(scope.parameter(i).name(), False)
       if self.print_types:
         self.PrintTypes(scope.parameter(i))
     self.W(")")
 
   def PrintDeclarations(self, declarations):
     for i in range(0, len(declarations)):
-#            if i > 0:
-#                self.W(" ")
+# if i > 0:
+# self.W(" ")
       self.Visit(declarations[i])
 
   def PrintStatements(self, statements):
@@ -3026,7 +3036,7 @@ class Printer(AstVisitor):
       self.PrintTypes(node)
 
   def VisitExpressionStatement(self, node):
-    self.Visit(node.expression)
+    self.Visit(node.expression())
 
   def VisitCall(self, node):
     self.Visit(node.expression())
@@ -3035,10 +3045,10 @@ class Printer(AstVisitor):
     self.W(")")
 
   def VisitVariableProxy(self, node):
-    self.Visit(node.var)
-#        self.PrintLiteral(node.name, False)
-#        if self.print_types:
-#            self.PrintTypes(node)
+    self.Visit(node.var())
+# self.PrintLiteral(node.name, False)
+# if self.print_types:
+# self.PrintTypes(node)
 
   def PrintArguments(self, arguments):
     for i in range(0, len(arguments)):
@@ -3049,44 +3059,44 @@ class Printer(AstVisitor):
   def VisitDeclaration(self, node):
     self.NewlineAndIndent()
     self.W("var ")
-    self.PrintLiteral(node.proxy.name, False)
-    if node.fun != None:
+    self.PrintLiteral(node.proxy().name(), False)
+    if node.fun() != None:
       self.W(" = ")
-      self.PrintFunctionLiteral(node.fun)
+      self.PrintFunctionLiteral(node.fun())
     self.W(";")
 
   def VisitReturnStatement(self, node):
     self.W("return ")
-    self.Visit(node.expression)
+    self.Visit(node.expression())
 
   def VisitConditional(self, node):
-    self.Visit(node.condition)
+    self.Visit(node.condition())
     self.W(" ? ")
-    self.Visit(node.then_expression)
+    self.Visit(node.then_expression())
     self.W(" : ")
-    self.Visit(node.else_expression)
+    self.Visit(node.else_expression())
 
   def VisitCompareOperation(self, node):
     self.W("(")
-    self.Visit(node.left)
-    self.W(String(node.op))
-    self.Visit(node.right)
+    self.Visit(node.left())
+    self.W(Token.String(node.op()))
+    self.Visit(node.right())
     self.W(")")
 
   def VisitIfStatement(self, node):
     self.W("if (")
-    self.Visit(node.condition)
+    self.Visit(node.condition())
     self.W(") ")
-    self.Visit(node.then_statement)
+    self.Visit(node.then_statement())
     if node.HasElseStatement():
       self.W(" else ")
-      self.Visit(node.else_statement)
+      self.Visit(node.else_statement())
 
   def VisitBinaryOperation(self, node):
     self.W("(")
-    self.Visit(node.left)
-    self.W(String(node.op))
-    self.Visit(node.right)
+    self.Visit(node.left())
+    self.W(Token.String(node.op()))
+    self.Visit(node.right())
     self.W(")")
     if self.print_types:
       self.PrintTypes(node)
@@ -3096,21 +3106,21 @@ class Printer(AstVisitor):
     if not node.is_initializer_block:
       self.W("{ ")
       self.nest += 1
-    if len(node.statements) > 0:
-      self.PrintStatements(node.statements)
+    if len(node.statements()) > 0:
+      self.PrintStatements(node.statements())
     if not node.is_initializer_block:
       self.nest -= 1
       self.W("}")
 
   def VisitVariable(self, node):
-    self.W(node.name.value)
-    if self.print_types:
-      self.PrintTypes(node)
+    self.W(node.name().value)
+    self.PrintTypes(node)
+    #print(node, ' ', node.name().value)
 
   def VisitAssignment(self, node):
-    self.Visit(node.target.var)
-    self.W(" " + String(node.op) + " ")
-    self.Visit(node.value)
+    self.Visit(node.target().var())
+    self.W(" " + Token.String(node.op()) + " ")
+    self.Visit(node.value())
 
   def PrintLn(self, node):
     try:
@@ -3121,19 +3131,383 @@ class Printer(AstVisitor):
       print self.buffer
       raise
 
+  def Init(self): pass
+  def OutPut(self): pass
+
+
+class IndentedScope:
+  def __init__(self, *args):
+    if len(args) == 0:
+      AstPrinter.ast_printer_.inc_indent()
+    else:
+      txt = args[0]
+      type = None if len(args) == 1 else args[1]
+      AstPrinter.ast_printer_.PrintIndented(txt)
+      print(type)
+      if type != None and type.IsKnown():
+        AstPrinter.ast_printer_.Print(' (type = ')
+        AstPrinter.ast_printer_.Print(SmiAnalysis.Type2String(type))
+        AstPrinter.ast_printer_.Print(')')
+      AstPrinter.ast_printer_.Print('\n')
+      AstPrinter.ast_printer_.inc_indent()
+
+  def __enter__(self): pass
+
+  def __exit__(self, *args):
+    AstPrinter.ast_printer_.dec_indent()
+
+  @staticmethod
+  def SetAstPrinter(a): AstPrinter.ast_printer_ = a
+
+  ast_printer_ = None
+
+class AstPrinter(PrettyPrinter):
+  @staticmethod
+  def Print(txt): sys.stdout.write(txt)
+
+  indent_ = 0
+
+  def inc_indent(self): AstPrinter.indent_ += 1
+  def dec_indent(self): AstPrinter.indent_ -= 1
+
+  def __init__(self):
+    assert(self.indent_ == 0)
+    PrettyPrinter.__init__(self)
+    IndentedScope.SetAstPrinter(self)
+
+  def __del__(self):
+    assert(self.indent_ == 0)
+    IndentedScope.SetAstPrinter(None)
+
+  def PrintIndented(self, txt):
+    self.Print('. ' * self.indent_)
+    self.Print(txt)
+
+  def PrintLiteralIndented(self, info, value, quote):
+    self.PrintIndented(info)
+    self.Print(' ')
+    self.PrintLiteral(value, quote)
+    self.Print('\n')
+
+  def PrintLiteralWithModeInented(self, info, var, value, type):
+    if var == None:
+      self.PrintLiteralIndented(info, value, True)
+    else:
+      if type.IsKnown():
+        buf = info + ' ' + '(mode = ' + Variable.Mode2String(var.mode()) + \
+            ', type = ' + SmiAnalysis.Type2String(type) + ')'
+      else:
+        buf = info + ' (mode = ' + Variable.Mode2String(var.mode()) + ')'
+      self.PrintLiteralIndented(buf, value, True)
+
+  def PrintIndentedVisit(self, s, node):
+    with IndentedScope(s) as indent:
+      self.Visit(node)
+
+  def PrintProgram(self, program):
+    self.Init()
+    with IndentedScope('FUNC') as indent:
+      self.PrintLiteralIndented('NAME', program.name(), True)
+      self.PrintLiteralIndented('INFERRED NAME', program.inferred_name(), True)
+      self.PrintParameters(program.scope())
+      self.PrintDeclarations(program.scope().declarations())
+      self.PrintStatements(program.body())
+    #return self.Output()
+
+  def PrintDeclarations(self, declarations):
+    if len(declarations) > 0:
+      with IndentedScope('DECLS') as indent:
+        for decl in declarations:
+          self.Visit(decl)
+
+  def PrintParameters(self, scope):
+    if scope.num_parameters() > 0:
+      with IndentedScope('PARAMS') as indent:
+        for i in range(0, scope.num_parameters()):
+          self.PrintLiteralWithModeInented('VAR', scope.parameter(i),
+                                           scope.parameter(i).name(),
+                                           scope.parameter(i).type())
+
+  def PrintStatements(self, statements):
+    for stmt in statements:
+      self.Visit(stmt)
+
+  def PrintArguments(self, arguments):
+    for arg in arguments:
+      self.Visit(arguments)
+
+  def VisitBlock(self, node):
+    block_txt = 'BLOCK INIT' if node.is_initializer_block() else 'BLOCK'
+    with IndentedScope(block_txt) as indent:
+      self.PrintStatements(node.statements())
+
+  def VisitDeclaration(self, node):
+    if node.fun() == None:
+      # var or const declarations
+      self.PrintLiteralWithModeInented(Variable.Mode2String(node.mode()),
+                                       node.proxy().AsVariable(),
+                                       node.proxy().name(),
+                                       node.proxy(),AsVariable().type())
+    else:
+      # function declarations
+      self.PrintIndented('FUNCTION ')
+      self.PrintLiteral(node.proxy().name(), True)
+      self.Print(' = function ')
+      self.PrintLiteral(node.fun().name(), False)
+      self.Print('\n')
+
+  def VisitExpressionStatement(self, node):
+    self.Visit(node.expression())
+
+  def VisitEmptyStatement(self, node):
+    self.PrintIndented('EMPTY\n')
+
+  def VisitIfStatement(self, node):
+    self.PrintIndentedVisit('IF', node.condition())
+    self.PrintIndentedVisit('THEN', node.then_statement())
+    if node.HasElseStatement():
+      self.PrintIndentedVisit('ELSE', node.else_statement())
+
+  def VisitReturnStatement(self, node):
+    self.PrintIndentedVisit('RETURN', node.expression())
+
+  def VisitFunctionLiteral(self, node):
+    with IndentedScope('FUNC LITERAL') as indent:
+      self.PrintLiteralIndented('NAME', node.name(), False)
+      self.PrintLiteralIndented('INFERRED NAME', node.inferred_name(), False)
+      self.PrintParameters(node.scope())
+      # We don't want to see the function literal in this case: it
+      # will be printed via PrintProgram when the code for it is
+      # generated.
+      self.PrintStatements(node.body())
+
+  def VisitConditional(self, node):
+    with IndentedScope('CONDITIONAL') as indent:
+      self.PrintIndentedVisit('?', node.condition())
+      self.PrintIndentedVisit('THEN', node.then_expression())
+      self.PrintIndentedVisit('ELSE', node.else_expression())
+
+  def VisitLiteral(self, node):
+    self.PrintLiteralIndented('LITERAL', node.handle(), True)
+
+  def VisitSlot(self, node):
+    self.PrintIndented('SLOT ')
+    if node.type() == Slot.PARAMETER:
+      self.Print('parameter[' + str(node.index()) + ']')
+    elif node.type() == Slot.LOCAL:
+      self.Print('frame[' + str(node.index()) + ']')
+    elif node.type() == Slot.CONTEXT:
+      self.Print('.context[' + str(node.index()) + ']')
+    elif node.type() == Slot.LOOKUP:
+      self.Print('.context[')
+      self.PrintLiteral(node.var().name(), False)
+      self.Print(']')
+    else:
+      assert(False)
+    self.Print('\n')
+
+  def VisitVariableProxy(self, node):
+    self.PrintLiteralWithModeInented('VAR PROXY', node.AsVariable(), node.name(),
+                                     node.type())
+    var = node.var()
+    if var != None and var.rewriter() != None:
+      with IndentedScope() as indent:
+        self.Visit(var.rewite())
+
+  def VisitAssignment(self, node):
+    with IndentedScope(Token.Name(node.op()), node.type()) as indent:
+      self.Visit(node.target())
+      self.Visit(node.value())
+
+  def VisitCall(self, node):
+    with IndentedScope('CALL') as indent:
+      self.Visit(node.expression())
+      self.PrintArguments(node.arguments())
+
+  def VisitCallRuntime(self, node):
+    self.PrintLiteralIndented('CALL RUNTIME ', node.name(), False)
+    with IndentedScope as indent:
+      self.PrintArguments(node.arguments())
+
+  def VisitUnaryOperation(self, node):
+    self.PrintIndentedVisit(Token.Name(node.op()), node.expression())
+
+  def VisitCountOperation(self, node):
+    if node.type().IsKnown():
+      buf = ('PRE' if node.is_prefix() else 'POST') + ' ' + \
+          Token.Name(node.op()) + ' (type = ' + \
+          SmiAnalysis.Type2String(node.type()) + ')'
+    else:
+      buf = ('PRE' if node.is_prefix() else 'POST') + ' ' + Token.Name(node.op())
+    self.PrintIndentedVisit(buf, node.expression())
+
+  def VisitBinaryOperation(self, node):
+    with IndentedScope(Token.Name(node.op()), node.type()) as indent:
+      self.Visit(node.left())
+      self.Visit(node.right())
+
+  def VisitCompareOperation(self, node):
+    with IndentedScope(Token.Name(node.op()), node.type()) as indent:
+      self.Visit(node.left())
+      self.Visit(node.right())
+
+class TemplateBuilder(AstVisitor):
+  def __init__(self):
+    AstVisitor.__init__(self)
+
+  def CopyLiteral(self, value):
+    return JSObject(value.kind, value.value)
+
+  def VisitLiteral(self, node):
+    return Literal(self.CopyLiteral(node.handle()))
+
+  def CopyScope(self, node): return None
+
+  def VisitFunctionLiteral(self, node):
+    ret = FunctionLiteral(self.CopyLiteral(node.name()),
+                          self.CopyScope(node.scope()),
+                          [self.Visit(stmt) for stmt in node.body()],
+                          node.num_parameters(),
+                          node.is_expression())
+    ret.loop_nesting_ = node.loop_nesting()
+    ret.inferred_name_ = self.CopyLiteral(node.inferred_name())
+    ret.try_fast_codegen_ = node.try_fast_codegen()
+    return ret
+
+  def VisitExpressionStatement(self, node):
+    return ExpressionStatement(self.Visit(node.expression()))
+
+  def VisitCall(self, node):
+    return Call(self.Visit(node.expression()),
+                [self.Visit(arg) for arg in node.arguments()])
+
+  def VisitVariableProxy(self, node):
+    return VariableProxy(self.CopyLiteral(node.name()),
+                         self.Visit(node.var()),
+                         node.is_this(),
+                         node.inside_with())
+
+  def VisitDeclaration(self, node):
+    return Declaration(self.Visit(node.proxy()),
+                       node.mode(),
+                       self.Visit(node.fun()))
+
+  def VisitReturnStatement(self, node):
+    return ReturnStatement(self.Visit(node.expression()))
+
+  def VisitConditional(self, node):
+    return Condition(self.Visit(node.condition()),
+                     self.Visit(node.then_expression()),
+                     self.Visit(node.else_expression()))
+
+  def VisitCompareOperation(self, node):
+    return CompareOperation(node.op(),
+                            self.Visit(node.left()),
+                            self.Visit(node.right()))
+
+  def VisitIfStatement(self, node):
+    return IfStatement(self.Visit(node.condition()),
+                       self.Visit(node.then_statement()),
+                       self.Visit(node.else_statement())
+                       if node.HasElseStatement() else None)
+
+  def VisitBinaryOperation(self, node):
+    return BinaryOperation(node.op(),
+                           self.Visit(node.left()),
+                           self.Visit(node.right()))
+
+  def VisitBlock(self, node):
+    ret = Block(node.labels(), 1, node.is_initializer_block())
+    ret.statements_ = [self.Visit(stmt) for stmt in node.statements()]
+    return ret
+
+  def VisitVariable(self, node):
+    self.W(node.name.value)
+    if self.print_types:
+      self.PrintTypes(node)
+
+  def VisitAssignment(self, node):
+    self.Visit(node.target().var())
+    self.W(" " + String(node.op) + " ")
+    self.Visit(node.value())
+
+  def Build(self, node):
+    return self.Visit(node)
+
+class Type:
+  INT = 0
+  FLOAT = 1
+  BOOL = 2
+  STR = 3
+  FUN = 4
+  NULL = 5
+  UNKNOWN = 10
+
+  @staticmethod
+  def ToString(type):
+    for T in ((Type.INT, "INT"), (Type.FLOAT, "FLOAT"), (Type.BOOL, "BOOL"),
+              (Type.STR, "STR"), (Type.FUN, "FUN"),
+              (Type.NULL, "NULL"), (Type.UNKNOWN, "UNKNOWN")):
+      if T[0] == type:
+        return T[1]
+    assert(False)
+
+class TypeNode:
+  def __init__(self):
+    self.types = []
+    self.constraints = []
+
+  def AddEdge(self, target):
+    self.constraints.append(target)
+
+  def Propagate(self):
+    ret = False
+    for constraint in self.constraints:
+      for type in self.types:
+        if not type in constraint.types:
+          ret = True
+          constraint.types.append(type);
+          constraint.Propagate()
+    return ret
+
+#class TypeBinOpNode:
+#  def __init__(self):
+#    
+
+class Template(TypeNode):
+  def __init__(self):
+    TypeNode.__init__(self)
+
+class OperatorTemplate(Template): pass
+
+#class FunctionTemplate(Template):
+#  def __init__(self, fun):
+#    assert(isinstance(fun, FunctionLiteral))
+#    Template.__init__(self)
+def FunctionTemplate(fun):
+  assert(isinstance(fun, FunctionLiteral))
+  ret = copy.copy(fun)
+  ret.__type__.types = []
+  ret.__type__.constraints = []
+  return ret
+
 class TemplateRepository:
   def __init__(self, fun):
-    self.repos = dict()
-    self.fun = fun
+    self.repos_ = dict()
+    self.fun_ = fun
   def Create(self, tuple):
-    if not tuple in self.repos:
-      assert(False)
-    return self.repos[tuple]
+    if not tuple in self.repos_:
+      self.repos_[tuple] = FunctionTemplate(self.fun_)
+    return self.repos_[tuple]
+
+def BAILOUT(str):
+  raise Exception(str)
 
 ###############
 # 1, 2 Allocate type variables, and seed them
 class Seeder(AstVisitor):
   def __init__(self, nodes):
+    AstVisitor.__init__(self)
     self.nodes = nodes
 
   def Allocate(self, node):
@@ -3148,7 +3522,7 @@ class Seeder(AstVisitor):
 
   def VisitFunctionLiteral(self, node):
     self.Allocate(node)
-    self.Seed(node, Type.FUNCTION)
+    self.Seed(node, Type.FUN)
 
     for i in range(0, node.scope().num_parameters()):
       self.Visit(node.scope().parameter(i))
@@ -3160,81 +3534,139 @@ class Seeder(AstVisitor):
       self.Visit(stmt)
 
   def VisitDeclaration(self, node):
-    self.Visit(node.proxy)
-    if node.fun != None:
-      self.Visit(node.fun)
-      node.fun.__type__.AddEdge(node.proxy.var.__type__)
+    var = node.proxy().var()
+    if var == None:
+      BAILOUT("unsupported invalid left-hand side")
+    self.Visit(var)
+
+    # function x() {...} was converted into var x = function() {...}
+    if node.fun() != None:
+      # NOTE(keisuke):
+      # Here assumes that 'var' keeps to hold same instance of FunctionLiteral.
+      # Maybe we can validate this assumption by looking at UseCount of the
+      # variable.
+      var.set_fun(node.fun())
+
+#      print(var.name().value)
+#      print(var)
+#      print(var.fun())
+#      print("")
+
+      self.Visit(node.fun())
+      node.fun().__type__.AddEdge(var.__type__)
+      #print(var.name().value, ' ', node.fun().__type__.types, var)
 
   def VisitVariableProxy(self, node):
-    self.Visit(node.var)
+    self.Visit(node.var())
 
   def VisitVariable(self, node):
     self.Allocate(node)
 
   def VisitReturnStatement(self, node):
-    self.Visit(node.expression)
+    self.Visit(node.expression())
 
   def VisitCall(self, node):
-    self.Allocate(node)
+    def Dfs(depth, callee, concrete_types):
+      if (depth == callee.num_parameters()):
+        template = callee.__repos__.Create(tuple(concrete_types))
+        for i in range(0, depth):
+          self.Seed(template.scope().parameter(i), concrete_types[i])
+        template.__type__.AddEdge(node.__type__)
+      else:
+        for type in node.arguments()[depth].__type__.types:
+          concrete_types.append(type)
+          Dfs(depth + 1, callee, concrete_types)
+          concrete_types.pop()
 
-    self.Visit(node.expression())
+    self.Allocate(node)
 
     for arg in node.arguments():
       self.Visit(arg)
 
+    expr = node.expression()
+    if isinstance(expr, FunctionLiteral):
+      # anonymous function call
+      self.Visit(expr)
+      expr.__type__.AddEdge(node.__type__)
+    elif isinstance(expr, VariableProxy):
+
+#      print(expr.var().name().value)
+#      print(expr.var())
+#      print(expr.var().fun())
+#      print""
+
+      if not expr.var(): raise Exception("unbound variable proxy")
+      if not expr.var().fun(): raise Exception("unbound variable: " + expr.var().name().value)
+
+      assert(expr.var() and expr.var().fun())
+      callee = expr.var().fun()
+      # callee must be visited by VisitDeclaration, so no need to visit here.
+      #self.Visit(callee)
+      #callee.__type__.AddEdge(node.__type__)
+      assert(callee.num_parameters() == len(node.arguments()))
+      Dfs(0, callee, [])
+    else:
+      assert(False)
+
   def VisitBinaryOperation(self, node):
     self.Allocate(node)
 
-    self.Visit(node.left)
-    self.Visit(node.right)
+    self.Visit(node.left())
+    self.Visit(node.right())
 
-    (node.left.var if isinstance(node.left, VariableProxy) else node.left).__type__.AddEdge(node.__type__)
-    (node.right.var if isinstance(node.right, VariableProxy) else node.right).__type__.AddEdge(node.__type__)
+    def GetTypeNode(node):
+      if isinstance(node, VariableProxy):
+        return node.var().__type__
+      else:
+        return node.__type__
+
+    GetTypeNode(node.left()).AddEdge(GetTypeNode(node))
+    GetTypeNode(node.right()).AddEdge(GetTypeNode(node))
 
   def VisitExpressionStatement(self, node):
     self.Allocate(node)
-    self.Visit(node.expression)
+    self.Visit(node.expression())
 
   def VisitLiteral(self, node):
     self.Allocate(node)
-    if node.handle.IsString():
-      type = Type.STRING
+    if node.handle().IsString():
+      type = Type.STR
     elif node.IsNull():
       type = Type.NULL
     elif node.IsTrue() or node.IsFalse():
       type = Type.BOOL
-    elif node.handle.IsNumber():
+    elif node.handle().IsNumber():
       type = Type.INT
     else:
       type = Type.UNKNOWN
     self.Seed(node, type)
 
   def VisitBlock(self, node):
-    for stmt in node.statements:
+    for stmt in node.statements():
       self.Visit(stmt)
 
   def VisitAssignment(self, node):
-    self.Visit(node.target.var)
-    self.Visit(node.value)
-    node.value.__type__.AddEdge(node.target.var.__type__)
+    self.Visit(node.target().var())
+    self.Visit(node.value())
+    node.value().__type__.AddEdge(node.target().var().__type__)
 
   def VisitConditional(self, node):
     self.Allocate(node)
 
-    self.Visit(node.condition)
-    self.Visit(node.then_expression)
-    self.Visit(node.else_expression)
+    self.Visit(node.condition())
+    self.Visit(node.then_expression())
+    self.Visit(node.else_expression())
 
   def VisitCompareOperation(self, node):
     self.Allocate(node)
-    self.Visit(node.left)
-    self.Visit(node.right)
+    self.Visit(node.left())
+    self.Visit(node.right())
 
   def VisitIfStatement(self, node):
-    self.Visit(node.condition)
-    self.Visit(node.then_statement)
+    self.Visit(node.condition())
+    self.Visit(node.then_statement())
     if node.HasElseStatement():
-      self.Visit(node.else_statement)
+      self.Visit(node.else_statement())
 
 def Propagate(nodes):
   while True:
@@ -3260,7 +3692,9 @@ def main():
   Seeder(nodes).Visit(ast)
   Propagate(nodes)
 
-  Printer(opts.print_types).PrintLn(ast)
+  PrettyPrinter(opts.print_types).PrintLn(ast)
+  #template = TemplateBuilder().Build(ast)
+  #AstPrinter().PrintProgram(ast)
 
 if __name__ == "__main__":
   main()
