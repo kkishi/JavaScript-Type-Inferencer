@@ -907,7 +907,7 @@ class Variable:
 
   # added by keisuke
   def Accept(self, v):
-    v.VisitVariable(self)
+    return v.VisitVariable(self)
 
   # added by keisuke
   def fun(self):
@@ -1008,7 +1008,7 @@ class Block(BreakableStatement):
     self.is_initializer_block_ = is_initializer_block
 
   def Accept(self, v):
-    v.VisitBlock(self)
+    return v.VisitBlock(self)
 
   def AddStatement(self, statement):
     self.statements_.append(statement)
@@ -1028,7 +1028,7 @@ class Declaration(AstNode):
     assert(fun == None or mode == Variable.VAR)
 
   def Accept(self, v):
-    v.VisitDeclaration(self)
+    return v.VisitDeclaration(self)
 
   def proxy(self):
     return self.proxy_
@@ -1044,7 +1044,7 @@ class ExpressionStatement(Statement):
     self.expression_ = expression
 
   def Accept(self, v):
-    v.VisitExpressionStatement(self)
+    return v.VisitExpressionStatement(self)
 
   def AsExpressionStatement(self):
     return self
@@ -1057,7 +1057,7 @@ class ReturnStatement(Statement):
     self.expression_ = expression
 
   def Accept(self, v):
-    v.VisitReturnStatement(self)
+    return v.VisitReturnStatement(self)
 
   def AsReturnStatement(self):
     return self
@@ -1077,7 +1077,7 @@ class IfStatement(Statement):
     self.else_statement_ = else_statement
 
   def Accept(self, v):
-    v.VisitIfStatement(self)
+    return v.VisitIfStatement(self)
 
   def HasThenStatement(self): return not self.then_statement_.IsEmpty()
   def HasElseStatement(self): return not self.else_statement_.IsEmpty()
@@ -1088,7 +1088,7 @@ class IfStatement(Statement):
 
 class EmptyStatement(Statement):
   def Accept(self, v):
-    v.VisitEmptyStatement(self)
+    return v.VisitEmptyStatement(self)
 
   def AsEmptyStatement(self):
     return self
@@ -1098,7 +1098,7 @@ class Literal(Expression):
     self.handle_ = handle
 
   def Accept(self, v):
-    v.VisitLiteral(self)
+    return v.VisitLiteral(self)
 
   def AsLiteral(self):
     return self
@@ -1129,7 +1129,7 @@ class VariableProxy(Expression):
     #ASSERT(name->IsSymbol());
 
   def Accept(self, v):
-    v.VisitVariableProxy(self)
+    return v.VisitVariableProxy(self)
 
   def AsProperty(self):
     return None if self.var_ == None else self.var_.AsProperty()
@@ -1191,7 +1191,7 @@ class Slot(Expression):
     assert(var != None)
 
   def Accept(self, v):
-    v.VisitSlot(self)
+    return v.VisitSlot(self)
 
   def AsSlot(self):
     return self
@@ -1209,7 +1209,7 @@ class Call(Expression):
     self.arguments_ = arguments
 
   def Accept(self, v):
-    v.VisitCall(self)
+    return v.VisitCall(self)
 
   def AsCall(self):
     return self
@@ -1228,7 +1228,7 @@ class UnaryOperation(Expression):
     assert(Token.IsUnaryOp(op))
 
   def Accept(self, v):
-    v.VisitUnaryOperation(self)
+    return v.VisitUnaryOperation(self)
 
   def AsUnaryOperation(self):
     return self
@@ -1244,7 +1244,7 @@ class BinaryOperation(Expression):
     assert(Token.IsBinaryOp(op))
 
   def Accept(self, v):
-    v.VisitBinaryOperation(self)
+    return v.VisitBinaryOperation(self)
 
   def AsBinaryOperation(self):
     return self
@@ -1268,7 +1268,7 @@ class CountOperation(Expression):
     self.expression_ = expression
 
   def Accept(self, v):
-    v.VisitCountOperation(self)
+    return v.VisitCountOperation(self)
 
   def is_prefix(self): return self.is_prefix_
   def is_postfix(self): return not self.is_prefix_
@@ -1286,7 +1286,7 @@ class CompareOperation(Expression):
     assert(Token.IsCompareOp(op))
 
   def Accept(self, v):
-    v.VisitCompareOperation(self)
+    return v.VisitCompareOperation(self)
 
   def op(self): return self.op_
   def left(self): return self.left_
@@ -1299,7 +1299,7 @@ class Conditional(Expression):
     self.else_expression_ = else_expression
 
   def Accept(self, v):
-    v.VisitConditional(self)
+    return v.VisitConditional(self)
 
   def condition(self):
     return self.condition_
@@ -1318,7 +1318,8 @@ class Assignment(Expression):
     assert(Token.IsAssignmentOp(op))
 
   def Accept(self, v):
-    v.VisitAssignment(self)
+    return v.VisitAssignment(self)
+
   def AsAssignment(self):
     return self
 
@@ -1369,7 +1370,7 @@ class FunctionLiteral(Expression):
     self.try_fast_codegen_ = False
 
   def Accept(self, v):
-    v.VisitFunctionLiteral(self)
+    return v.VisitFunctionLiteral(self)
 
   def AsFunctionLiteral(self):
     return self
@@ -1394,7 +1395,7 @@ class FunctionLiteral(Expression):
 
 class ThisFunction(Expression):
   def Accept(self, v):
-    v.VisitThisFunction(self)
+    return v.VisitThisFunction(self)
 
 class VariableMap(dict):
   def Declare(self, scope, name, mode, is_valid_lhs, kind):
@@ -2213,7 +2214,7 @@ class Parser:
       self.Expect(Token.RBRACE)
 
       function_literal[0] = FunctionLiteral(name, self.top_scope, body,
-                          num_parameters, function_name != "")
+                                            num_parameters, function_name != "")
 
     return function_literal[0]
 
@@ -2246,6 +2247,23 @@ class Parser:
     fun = self.ParseFunctionLiteral(name, Parser.DECLARATION)
     self.Declare(name, Variable.VAR, fun, True)
     return None
+
+  def ParseBlock(self, labels):
+    # Block ::
+    #   '{' Statement* '}'
+
+    # Note that a Block does not introduce a new execution scope!
+    # (ECMA-262, 3rd, 12.2)
+    #
+    # Construct block expecting 16 statements.
+    result = Block(labels, 16, False)
+    #target = Target(self, result)
+    self.Expect(Token.LBRACE)
+    while self.peek() != Token.RBRACE:
+      stat = self.ParseStatement(None)
+      if stat and not stat.IsEmpty(): result.AddStatement(stat)
+    self.Expect(Token.RBRACE)
+    return result
 
   def ParseVariableStatement(self):
     # VariableStatement ::
@@ -2937,9 +2955,9 @@ class AstVisitor:
   def Visit(self, node):
     if isinstance(node, FunctionLiteral):
       with AstVisitor.LexicalScope(self, node.scope()) as lexical_scope:
-        node.Accept(self)
+        return node.Accept(self)
     else:
-      node.Accept(self)
+      return node.Accept(self)
 
 class PrettyPrinter(AstVisitor):
   def __init__(self, print_types = False):
@@ -2956,7 +2974,7 @@ class PrettyPrinter(AstVisitor):
     self.W(" " * (self.nest * 4))
 
   def PrintTypes(self, node):
-    assert(self.print_types)
+    if not self.print_types: return
     self.W('/*')
     for i in range(0, len(node.__type__.types)):
       if i > 0:
@@ -2986,8 +3004,7 @@ class PrettyPrinter(AstVisitor):
 
   def VisitLiteral(self, node):
     self.PrintLiteral(node.handle(), node.handle().IsString())
-    if self.print_types:
-      self.PrintTypes(node)
+    self.PrintTypes(node)
 
   def PrintParameters(self, scope):
     self.W("(")
@@ -2995,8 +3012,7 @@ class PrettyPrinter(AstVisitor):
       if i > 0:
         self.W(", ")
       self.PrintLiteral(scope.parameter(i).name(), False)
-      if self.print_types:
-        self.PrintTypes(scope.parameter(i))
+      self.PrintTypes(scope.parameter(i))
     self.W(")")
 
   def PrintDeclarations(self, declarations):
@@ -3013,8 +3029,8 @@ class PrettyPrinter(AstVisitor):
       old_len = len(self.buffer)
       self.Visit(statements[i])
       changed = old_len < len(self.buffer)
-      if changed:
-        self.W(";")
+#      if changed:
+#        self.W(";")
 
   def PrintFunctionLiteral(self, function):
     self.W("function ")
@@ -3032,11 +3048,11 @@ class PrettyPrinter(AstVisitor):
     self.W("(")
     self.PrintFunctionLiteral(node)
     self.W(")")
-    if self.print_types:
-      self.PrintTypes(node)
+    self.PrintTypes(node)
 
   def VisitExpressionStatement(self, node):
     self.Visit(node.expression())
+    self.W(";")
 
   def VisitCall(self, node):
     self.Visit(node.expression())
@@ -3068,6 +3084,7 @@ class PrettyPrinter(AstVisitor):
   def VisitReturnStatement(self, node):
     self.W("return ")
     self.Visit(node.expression())
+    self.W(";")
 
   def VisitConditional(self, node):
     self.Visit(node.condition())
@@ -3098,18 +3115,18 @@ class PrettyPrinter(AstVisitor):
     self.W(Token.String(node.op()))
     self.Visit(node.right())
     self.W(")")
-    if self.print_types:
-      self.PrintTypes(node)
+    self.PrintTypes(node)
 
   def VisitBlock(self, node):
     # this method may print no characters, so lonely ";" may appear.
-    if not node.is_initializer_block:
+    if not node.is_initializer_block():
       self.W("{ ")
       self.nest += 1
     if len(node.statements()) > 0:
       self.PrintStatements(node.statements())
-    if not node.is_initializer_block:
+    if not node.is_initializer_block():
       self.nest -= 1
+      self.NewlineAndIndent()
       self.W("}")
 
   def VisitVariable(self, node):
@@ -3361,7 +3378,9 @@ class TemplateBuilder(AstVisitor):
   def VisitLiteral(self, node):
     return Literal(self.CopyLiteral(node.handle()))
 
-  def CopyScope(self, node): return None
+  def CopyScope(self, node):
+    ret = Scope(node.outer_scope(), node.type_)
+    return ret
 
   def VisitFunctionLiteral(self, node):
     ret = FunctionLiteral(self.CopyLiteral(node.name()),
@@ -3371,7 +3390,7 @@ class TemplateBuilder(AstVisitor):
                           node.is_expression())
     ret.loop_nesting_ = node.loop_nesting()
     ret.inferred_name_ = self.CopyLiteral(node.inferred_name())
-    ret.try_fast_codegen_ = node.try_fast_codegen()
+    ret.try_fast_codegen_ = node.try_fast_codegen_
     return ret
 
   def VisitExpressionStatement(self, node):
@@ -3423,8 +3442,7 @@ class TemplateBuilder(AstVisitor):
 
   def VisitVariable(self, node):
     self.W(node.name.value)
-    if self.print_types:
-      self.PrintTypes(node)
+    self.PrintTypes(node)
 
   def VisitAssignment(self, node):
     self.Visit(node.target().var())
@@ -3676,6 +3694,18 @@ def Propagate(nodes):
     if not changed:
       break
 
+def ShowFlit(flit):
+  print(flit)
+  assert(isinstance(flit, FunctionLiteral))
+  print("name = ", flit.name(), ('"' + flit.name().value + '"'))
+  print("scope = ", flit.scope())
+  print("scope.params = ", flit.scope().params_)
+  print("scope.decls = ", flit.scope().decls_)
+  print("scope.outer_scope = ", flit.scope().outer_scope_)
+  print("scope.inner_scopes = ", flit.scope().inner_scopes_)
+  print("body = ", flit.body())
+  print'-'*50
+
 def main():
   # parse commandline options
   myusage = "%prog [-p] < %file"
@@ -3687,6 +3717,22 @@ def main():
   scanner = Scanner(sys.stdin.read())
   parser = Parser(scanner)
   ast = parser.ParseProgram(True)
+
+  ShowFlit(ast)
+
+  #ShowFlit(ast.scope().decls_[0].fun())
+
+  #tmpl = TemplateBuilder().Build(ast)
+  #ShowFlit(tmpl)
+
+  #print(vars(ast))
+  #print(vars(tmpl))
+
+#  ast_scope = ast.scope()
+#  for key in vars(ast_scope):
+#    print(key + " => " + str(vars(ast_scope)[key]))
+#  print(ast_scope.params_)
+#  print(ast_scope.decls_)
 
   nodes = []
   Seeder(nodes).Visit(ast)
