@@ -713,6 +713,7 @@ JSNULL = JSObject("null", "null")
 JSTRUE = JSObject("true", "true")
 JSFALSE = JSObject("false", "false")
 JSUNDEFINED = JSObject("undefined", "undefined")
+JSBUILTINS = [JSNULL, JSTRUE, JSFALSE, JSUNDEFINED]
 ##############
 
 class SmiAnalysis:
@@ -2133,7 +2134,8 @@ class Parser:
     top = result[0].scope()
     top.AllocateVariables(None)
 
-    return result[0]
+    return Call(result[0], [])
+    #return result[0]
 
   def ParseSourceElements(self, processor, end_token):
     # SourceElements ::
@@ -2935,29 +2937,11 @@ class Parser:
     return stmt
 
 class AstVisitor:
-  class LexicalScope:
-    def __init__(self, visitor, scope):
-      self.activated_ = True
-      self.visitor_ = visitor
-      self.prev_scope_ = visitor.current_scope_
-      visitor.current_scope_ = scope
-
-    def __enter__(self): pass
-
-    def __exit__(self, *e):
-      if self.activated_:
-        self.activated_ = False
-        self.visitor_.current_scope_ = self.prev_scope_
-
   def __init__(self):
     self.current_scope_ = None
 
   def Visit(self, node):
-    if isinstance(node, FunctionLiteral):
-      with AstVisitor.LexicalScope(self, node.scope()) as lexical_scope:
-        return node.Accept(self)
-    else:
-      return node.Accept(self)
+    return node.Accept(self)
 
 class PrettyPrinter(AstVisitor):
   def __init__(self, print_types = False):
@@ -3000,6 +2984,8 @@ class PrettyPrinter(AstVisitor):
     elif value.IsString():
       self.W(value.value)
     else:
+      print(value)
+      print(JSFALSE)
       self.W("<unknown literal>")
 
   def VisitLiteral(self, node):
@@ -3055,10 +3041,48 @@ class PrettyPrinter(AstVisitor):
     self.W(";")
 
   def VisitCall(self, node):
-    self.Visit(node.expression())
+    #print("VisitCall",node.expression())
+
+    expr = node.expression()
+    if isinstance(expr, FunctionLiteral):
+      repos = expr.__repos__
+      if len(repos.repos_) == 1:
+        # There is only one template. Which indicates that all arguments of this
+        # call is monomorphic.
+        fun = repos.repos_.values()[0].fun()
+        self.W("(")
+        self.PrintFunctionLiteral(fun)
+        self.W(")")
+        self.PrintTypes(fun)
+      else:
+        self.Visit(expr)
+    elif isinstance(expr, VariableProxy):
+      ok = True
+      for arg in node.arguments():
+        type_node = Seeder.GetTypeNode(arg)
+        if len(type_node.types) == 0:
+          assert(False)
+        elif len(type_node.types) > 1:
+          ok = False
+
+      suffix = ''
+      if ok:
+        for arg in node.arguments():
+          type_node = Seeder.GetTypeNode(arg)
+          suffix += '_' + Type.ToString(type_node.types[0])
+
+      self.W(expr.var().fun().name().value + suffix)
+      self.PrintTypes(node)
+    else:
+      assert(False)
+
+    #print(node.expression().__repos__, node.expression().__repos__.CreateTemplate(()).fun())
+
+    #self.Visit(node.expression())
     self.W("(")
     self.PrintArguments(node.arguments())
     self.W(")")
+    self.PrintTypes(node)
 
   def VisitVariableProxy(self, node):
     self.Visit(node.var())
@@ -3073,6 +3097,17 @@ class PrettyPrinter(AstVisitor):
       self.Visit(arguments[i])
 
   def VisitDeclaration(self, node):
+    if node.fun() != None:
+      repos = node.fun().__repos__
+      for tuple in repos.repos_:
+        fun = repos.repos_[tuple].fun()
+        self.NewlineAndIndent()
+        self.W("var ")
+        self.PrintLiteral(fun.name(), False)
+        self.W(" = ")
+        self.PrintFunctionLiteral(fun)
+        self.W(";")
+
     self.NewlineAndIndent()
     self.W("var ")
     self.PrintLiteral(node.proxy().name(), False)
@@ -3368,30 +3403,45 @@ class AstPrinter(PrettyPrinter):
       self.Visit(node.left())
       self.Visit(node.right())
 
-class TemplateBuilder(AstVisitor):
+class AstCopier(AstVisitor):
   def __init__(self):
     AstVisitor.__init__(self)
+    self.repos_ = dict()
 
   def CopyLiteral(self, value):
-    return JSObject(value.kind, value.value)
+    if value in JSBUILTINS:
+      return value
+    else:
+      return JSObject(value.kind, value.value)
 
   def VisitLiteral(self, node):
     return Literal(self.CopyLiteral(node.handle()))
 
   def CopyScope(self, node):
-    ret = Scope(node.outer_scope(), node.type_)
-    return ret
+    if not node in self.repos_:
+      s = Scope(node.outer_scope(), node.type_)
+      self.repos_[node] = s
+      for decl in node.declarations():
+        s.decls_.append(self.Visit(decl))
+      for i in range(0, node.num_parameters()):
+        s.params_.append(self.CopyVariable(node.parameter(i)))
+      #self.repos_[node] = s
+
+    return self.repos_[node]
 
   def VisitFunctionLiteral(self, node):
-    ret = FunctionLiteral(self.CopyLiteral(node.name()),
-                          self.CopyScope(node.scope()),
-                          [self.Visit(stmt) for stmt in node.body()],
-                          node.num_parameters(),
-                          node.is_expression())
-    ret.loop_nesting_ = node.loop_nesting()
-    ret.inferred_name_ = self.CopyLiteral(node.inferred_name())
-    ret.try_fast_codegen_ = node.try_fast_codegen_
-    return ret
+    if not node in self.repos_:
+      flit = FunctionLiteral(self.CopyLiteral(node.name()),
+                             self.CopyScope(node.scope()),
+                             [self.Visit(stmt) for stmt in node.body()],
+                             node.num_parameters(),
+                             node.is_expression())
+      flit.loop_nesting_ = node.loop_nesting()
+      flit.inferred_name_ = self.CopyLiteral(node.inferred_name())
+      flit.try_fast_codegen_ = node.try_fast_codegen_
+      self.repos_[node] = flit
+
+    return self.repos_[node]
 
   def VisitExpressionStatement(self, node):
     return ExpressionStatement(self.Visit(node.expression()))
@@ -3401,15 +3451,17 @@ class TemplateBuilder(AstVisitor):
                 [self.Visit(arg) for arg in node.arguments()])
 
   def VisitVariableProxy(self, node):
-    return VariableProxy(self.CopyLiteral(node.name()),
-                         self.Visit(node.var()),
-                         node.is_this(),
-                         node.inside_with())
+    ret = VariableProxy(self.CopyLiteral(node.name()),
+                        node.is_this(),
+                        node.inside_with())
+    if node.var():
+      ret.var_ = self.CopyVariable(node.var())
+    return ret
 
   def VisitDeclaration(self, node):
     return Declaration(self.Visit(node.proxy()),
                        node.mode(),
-                       self.Visit(node.fun()))
+                       None if node.fun() == None else self.Visit(node.fun()))
 
   def VisitReturnStatement(self, node):
     return ReturnStatement(self.Visit(node.expression()))
@@ -3440,16 +3492,45 @@ class TemplateBuilder(AstVisitor):
     ret.statements_ = [self.Visit(stmt) for stmt in node.statements()]
     return ret
 
-  def VisitVariable(self, node):
-    self.W(node.name.value)
-    self.PrintTypes(node)
+  def CopyVariable(self, node):
+#    self.scope_ = scope
+#    self.name_ = name
+#    self.mode_ = mode
+#    self.is_valid_LHS_ = is_valid_lhs
+#    self.kind_ = kind
+#    self.local_if_not_shadowed_ = None
+#    self.is_accessed_from_inner_scope_ = False
+#    self.rewrite_ = None
+#    self.var_uses_ = Variable.UseCount()
+#    self.fun_ = None  # added by keisuke
+
+    if not node in self.repos_:
+      v = Variable(self.CopyScope(node.scope()),
+                   self.CopyLiteral(node.name()),
+                   node.mode(),
+                   node.is_valid_LHS_,
+                   node.kind_)
+      v.local_if_not_shadowed_ = node.local_if_not_shadowed_
+      v.is_accessed_from_inner_scope_ = node.is_accessed_from_inner_scope_
+      v.rewrite_ = node.rewrite_ #?
+      v.var_uses_ = copy.copy(node.var_uses())
+      v.fun_ = None if node.fun() == None else self.Visit(node.fun())
+      self.repos_[node] = v
+    return self.repos_[node]
 
   def VisitAssignment(self, node):
-    self.Visit(node.target().var())
-    self.W(" " + String(node.op) + " ")
-    self.Visit(node.value())
+    ret = Assignment(node.op(),
+                     self.Visit(node.target()),
+                     self.Visit(node.value()))
+    ret.block_start_ = node.block_start_
+    ret.block_end_ = node.block_end_
+    return ret
 
-  def Build(self, node):
+    #self.Visit(node.target().var())
+    #self.W(" " + String(node.op) + " ")
+    #self.Visit(node.value())
+
+  def Copy(self, node):
     return self.Visit(node)
 
 class Type:
@@ -3488,45 +3569,53 @@ class TypeNode:
           constraint.Propagate()
     return ret
 
-#class TypeBinOpNode:
-#  def __init__(self):
-#    
+class FunctionTemplate:
+  def __init__(self, fun):
+    assert(isinstance(fun, FunctionLiteral))
+    self.fun_ = AstCopier().Copy(fun)
 
-class Template(TypeNode):
-  def __init__(self):
-    TypeNode.__init__(self)
-
-class OperatorTemplate(Template): pass
-
-#class FunctionTemplate(Template):
-#  def __init__(self, fun):
-#    assert(isinstance(fun, FunctionLiteral))
-#    Template.__init__(self)
-def FunctionTemplate(fun):
-  assert(isinstance(fun, FunctionLiteral))
-  ret = copy.copy(fun)
-  ret.__type__.types = []
-  ret.__type__.constraints = []
-  return ret
+  def fun(self): return self.fun_
 
 class TemplateRepository:
   def __init__(self, fun):
     self.repos_ = dict()
     self.fun_ = fun
-  def Create(self, tuple):
+
+  def CreateTemplate(self, tuple):
     if not tuple in self.repos_:
       self.repos_[tuple] = FunctionTemplate(self.fun_)
+      for type in tuple:
+        self.repos_[tuple].fun().name().value += '_' + Type.ToString(type)
+      #print("CreateTemplate", self.fun_, self.repos_[tuple].fun().name().value, tuple)
     return self.repos_[tuple]
 
 def BAILOUT(str):
   raise Exception(str)
 
+Seeder_depth = 0
+
 ###############
-# 1, 2 Allocate type variables, and seed them
+# 1. Allocate type variables
+# 2. Seed them
 class Seeder(AstVisitor):
+  class TemplateScope:
+    def __init__(self, visitor, scope):
+      self.activated_ = True
+      self.visitor_ = visitor
+      self.prev_scope_ = visitor.current_scope_
+      visitor.current_scope_ = scope
+
+    def __enter__(self): pass
+
+    def __exit__(self, *e):
+      if self.activated_:
+        self.activated_ = False
+        self.visitor_.current_scope_ = self.prev_scope_
+
   def __init__(self, nodes):
     AstVisitor.__init__(self)
     self.nodes = nodes
+    self.current_scope_ = None  # represents currently analyzed function template.
 
   def Allocate(self, node):
     if not '__type__' in dir(node):
@@ -3536,7 +3625,8 @@ class Seeder(AstVisitor):
       self.nodes.append(node.__type__)
 
   def Seed(self, node, type):
-    node.__type__.types.append(type)
+    if not type in node.__type__.types:
+      node.__type__.types.append(type)
 
   def VisitFunctionLiteral(self, node):
     self.Allocate(node)
@@ -3571,8 +3661,8 @@ class Seeder(AstVisitor):
 #      print("")
 
       self.Visit(node.fun())
+      #print(node.fun(),node.fun().name().value)
       node.fun().__type__.AddEdge(var.__type__)
-      #print(var.name().value, ' ', node.fun().__type__.types, var)
 
   def VisitVariableProxy(self, node):
     self.Visit(node.var())
@@ -3582,16 +3672,50 @@ class Seeder(AstVisitor):
 
   def VisitReturnStatement(self, node):
     self.Visit(node.expression())
+    #print(self.current_scope_)
+    if self.current_scope_:
+      u = self.GetTypeNode(node.expression())
+      v = self.GetTypeNode(self.current_scope_)
+      u.AddEdge(v)
 
   def VisitCall(self, node):
+
     def Dfs(depth, callee, concrete_types):
       if (depth == callee.num_parameters()):
-        template = callee.__repos__.Create(tuple(concrete_types))
+        template = callee.__repos__.CreateTemplate(tuple(concrete_types))
+        self.Allocate(template)  # has types of return value
+        fun = template.fun()
+
+#        global Seeder_depth
+#        print(('-' * Seeder_depth * 4) + 'into ' + fun.name().value)
+#        Seeder_depth += 1
+
+#        self.Visit(fun)
+        with Seeder.TemplateScope(self, template) as template_scope:
+          self.Visit(fun)
+
+#        Seeder_depth -= 1
+#        print(('-' * Seeder_depth * 4) + 'out from ' + fun.name().value)
+
+
+        for i in range(0, fun.scope().num_parameters()):
+          self.Visit(fun.scope().parameter(i))
+
+        for decl in fun.scope().declarations():
+          self.Visit(decl)
+
+        for stmt in fun.body():
+          self.Visit(stmt)
+
         for i in range(0, depth):
-          self.Seed(template.scope().parameter(i), concrete_types[i])
+          self.Seed(fun.scope().parameter(i), concrete_types[i])
+
+        #fun.__type__.AddEdge(node.__type__)
         template.__type__.AddEdge(node.__type__)
+
       else:
-        for type in node.arguments()[depth].__type__.types:
+        type_node = self.GetTypeNode(node.arguments()[depth])
+        for type in type_node.types:
           concrete_types.append(type)
           Dfs(depth + 1, callee, concrete_types)
           concrete_types.pop()
@@ -3605,13 +3729,10 @@ class Seeder(AstVisitor):
     if isinstance(expr, FunctionLiteral):
       # anonymous function call
       self.Visit(expr)
-      expr.__type__.AddEdge(node.__type__)
+      #expr.__type__.AddEdge(node.__type__)
+      assert(expr.num_parameters() == len(node.arguments()))
+      Dfs(0, expr, [])
     elif isinstance(expr, VariableProxy):
-
-#      print(expr.var().name().value)
-#      print(expr.var())
-#      print(expr.var().fun())
-#      print""
 
       if not expr.var(): raise Exception("unbound variable proxy")
       if not expr.var().fun(): raise Exception("unbound variable: " + expr.var().name().value)
@@ -3632,14 +3753,8 @@ class Seeder(AstVisitor):
     self.Visit(node.left())
     self.Visit(node.right())
 
-    def GetTypeNode(node):
-      if isinstance(node, VariableProxy):
-        return node.var().__type__
-      else:
-        return node.__type__
-
-    GetTypeNode(node.left()).AddEdge(GetTypeNode(node))
-    GetTypeNode(node.right()).AddEdge(GetTypeNode(node))
+    self.GetTypeNode(node.left()).AddEdge(self.GetTypeNode(node))
+    self.GetTypeNode(node.right()).AddEdge(self.GetTypeNode(node))
 
   def VisitExpressionStatement(self, node):
     self.Allocate(node)
@@ -3686,24 +3801,56 @@ class Seeder(AstVisitor):
     if node.HasElseStatement():
       self.Visit(node.else_statement())
 
+  @staticmethod
+  def GetTypeNode(node):
+    if isinstance(node, VariableProxy):
+      return node.var().__type__
+    else:
+      return node.__type__
+
 def Propagate(nodes):
+  ret = False
   while True:
     changed = False
     for node in nodes:
       changed = changed or node.Propagate()
+    if changed:
+      ret = True
     if not changed:
       break
+  return ret
 
-def ShowFlit(flit):
-  print(flit)
+def ShowFlit(flit, depth = 0):
+  def Print(*args):
+    if depth:
+      sys.stdout.write(' ' * depth * 4)
+    print args
+
+  print'-'*50
+  Print(flit)
   assert(isinstance(flit, FunctionLiteral))
-  print("name = ", flit.name(), ('"' + flit.name().value + '"'))
-  print("scope = ", flit.scope())
-  print("scope.params = ", flit.scope().params_)
-  print("scope.decls = ", flit.scope().decls_)
-  print("scope.outer_scope = ", flit.scope().outer_scope_)
-  print("scope.inner_scopes = ", flit.scope().inner_scopes_)
-  print("body = ", flit.body())
+  Print("name = ", flit.name(), ('"' + flit.name().value + '"'))
+  Print("scope = ", flit.scope())
+  Print("scope.params = ", flit.scope().params_)
+  Print("scope.decls = ", flit.scope().decls_)
+  for decl in flit.scope().decls_:
+    Print("scope.decls[i].proxy = ",decl.proxy())
+    Print("scope.decls[i].mode = ",decl.mode())
+    Print("scope.decls[i].fun = ",decl.fun())
+    ShowFlit(decl.fun(), depth + 1)
+  #Print("scope.outer_scope = ", flit.scope().outer_scope_)  # no need
+  #Print("scope.inner_scopes = ", flit.scope().inner_scopes_) # no need
+  Print("body = ", flit.body())
+
+  if len(flit.body()) > 0:
+    if isinstance(flit.body()[0], ExpressionStatement):
+      in_flit = flit.body()[0].expression().expression()
+      if (isinstance(in_flit, FunctionLiteral)):
+        ShowFlit(in_flit, depth + 1)
+      else:
+        Print(flit.body()[0])
+  #print(in_flit.scope().decls_)
+
   print'-'*50
 
 def main():
@@ -3718,28 +3865,18 @@ def main():
   parser = Parser(scanner)
   ast = parser.ParseProgram(True)
 
-  ShowFlit(ast)
-
-  #ShowFlit(ast.scope().decls_[0].fun())
-
-  #tmpl = TemplateBuilder().Build(ast)
+  #ShowFlit(ast)
+  #tmpl = AstCopier().Copy(ast)
   #ShowFlit(tmpl)
 
-  #print(vars(ast))
-  #print(vars(tmpl))
-
-#  ast_scope = ast.scope()
-#  for key in vars(ast_scope):
-#    print(key + " => " + str(vars(ast_scope)[key]))
-#  print(ast_scope.params_)
-#  print(ast_scope.decls_)
-
   nodes = []
-  Seeder(nodes).Visit(ast)
-  Propagate(nodes)
+  while True:
+    Seeder(nodes).Visit(ast)
+    p = Propagate(nodes)
+    if not p: break
 
   PrettyPrinter(opts.print_types).PrintLn(ast)
-  #template = TemplateBuilder().Build(ast)
+  #template = AstCopier().Copy(ast)
   #AstPrinter().PrintProgram(ast)
 
 if __name__ == "__main__":
