@@ -3043,13 +3043,22 @@ class PrettyPrinter(AstVisitor):
   def VisitCall(self, node):
     #print("VisitCall",node.expression())
 
+    # True if all types of arguments are monomorphic
+    is_monomorphic_call = True
+    for arg in node.arguments():
+      type_node = Seeder.GetTypeNode(arg)
+      if len(type_node.types) == 0:
+        assert(False)
+      elif len(type_node.types) > 1:
+        is_monomorphic_call = False
+
+    arg_types = tuple([Seeder.GetTypeNode(a).types[0] for a in node.arguments()])
+
     expr = node.expression()
     if isinstance(expr, FunctionLiteral):
-      repos = expr.__repos__
-      if len(repos.repos_) == 1:
-        # There is only one template. Which indicates that all arguments of this
-        # call is monomorphic.
-        fun = repos.repos_.values()[0].fun()
+      if is_monomorphic_call:
+        template = expr.__repos__.CreateTemplate(arg_types)
+        fun = template.fun()
         self.W("(")
         self.PrintFunctionLiteral(fun)
         self.W(")")
@@ -3057,19 +3066,11 @@ class PrettyPrinter(AstVisitor):
       else:
         self.Visit(expr)
     elif isinstance(expr, VariableProxy):
-      ok = True
-      for arg in node.arguments():
-        type_node = Seeder.GetTypeNode(arg)
-        if len(type_node.types) == 0:
-          assert(False)
-        elif len(type_node.types) > 1:
-          ok = False
-
       suffix = ''
-      if ok:
-        for arg in node.arguments():
-          type_node = Seeder.GetTypeNode(arg)
-          suffix += '_' + Type.ToString(type_node.types[0])
+      if is_monomorphic_call:
+        # call specialized version
+        for type in arg_types:
+          suffix += '_' + Type.ToString(type)
 
       self.W(expr.var().fun().name().value + suffix)
       self.PrintTypes(node)
@@ -3099,8 +3100,8 @@ class PrettyPrinter(AstVisitor):
   def VisitDeclaration(self, node):
     if node.fun() != None:
       repos = node.fun().__repos__
-      for tuple in repos.repos_:
-        fun = repos.repos_[tuple].fun()
+      for key in repos.repos_:
+        fun = repos.repos_[key].fun()
         self.NewlineAndIndent()
         self.W("var ")
         self.PrintLiteral(fun.name(), False)
@@ -3581,13 +3582,13 @@ class TemplateRepository:
     self.repos_ = dict()
     self.fun_ = fun
 
-  def CreateTemplate(self, tuple):
-    if not tuple in self.repos_:
-      self.repos_[tuple] = FunctionTemplate(self.fun_)
-      for type in tuple:
-        self.repos_[tuple].fun().name().value += '_' + Type.ToString(type)
-      #print("CreateTemplate", self.fun_, self.repos_[tuple].fun().name().value, tuple)
-    return self.repos_[tuple]
+  def CreateTemplate(self, types):
+    if not types in self.repos_:
+      self.repos_[types] = FunctionTemplate(self.fun_)
+      for type in types:
+        self.repos_[types].fun().name().value += '_' + Type.ToString(type)
+      #print("CreateTemplate", self.fun_, self.repos_[types].fun().name().value, types)
+    return self.repos_[types]
 
 def BAILOUT(str):
   raise Exception(str)
@@ -3696,7 +3697,6 @@ class Seeder(AstVisitor):
 
 #        Seeder_depth -= 1
 #        print(('-' * Seeder_depth * 4) + 'out from ' + fun.name().value)
-
 
         for i in range(0, fun.scope().num_parameters()):
           self.Visit(fun.scope().parameter(i))
@@ -3872,8 +3872,7 @@ def main():
   nodes = []
   while True:
     Seeder(nodes).Visit(ast)
-    p = Propagate(nodes)
-    if not p: break
+    if not Propagate(nodes): break
 
   PrettyPrinter(opts.print_types).PrintLn(ast)
   #template = AstCopier().Copy(ast)
