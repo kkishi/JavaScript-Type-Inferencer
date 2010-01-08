@@ -2391,31 +2391,31 @@ class Parser:
       # browsers where the global object (window) has lots of
       # properties defined in prototype objects.
 
-      if self.top_scope.is_global_scope():
-        arguments = []
-        # Be careful not to assign a value to the global variable if
-        # we're in a with. The initialization value should not
-        # necessarily be stored in the global object in that case,
-        # which is why we need to generate a separate assignment node.
-        arguments.append(Literal(name))  # we have at least 1 parameter
-        if is_const or (value != None and not self.inside_with()):
-          arguments.append(value)
-          value = None
-        # Construct the call to Runtime::DeclareGlobal{Variable,Const}Locally
-        # and add it to the initialization statement block. Note that
-        # this function does different things depending on if we have
-        # 1 or 2 parameters.
-        assert(False and "not implemented yet.")
-        initialize = None
-#                if is_const:
-#                    initialize = CallRuntime(JSObject("string", "InitializeConstGlobal"),
-#                                             Runtime.FunctionForId(Runtime.kInitializeConstGlobal),
-#                                             arguments)
-#                else:
-#                    initialize = CallRuntime(JSObject("string", "InitializeVarGlobal"),
-#                                             Runtime.FunctionForId(Runtime.kInitializeVarGlobal),
-#                                             arguments)
-        block.AddStatement(ExpressionStatement(initialize))
+#      if self.top_scope.is_global_scope():
+#        arguments = []
+#        # Be careful not to assign a value to the global variable if
+#        # we're in a with. The initialization value should not
+#        # necessarily be stored in the global object in that case,
+#        # which is why we need to generate a separate assignment node.
+#        arguments.append(Literal(name))  # we have at least 1 parameter
+#        if is_const or (value != None and not self.inside_with()):
+#          arguments.append(value)
+#          value = None
+#        # Construct the call to Runtime::DeclareGlobal{Variable,Const}Locally
+#        # and add it to the initialization statement block. Note that
+#        # this function does different things depending on if we have
+#        # 1 or 2 parameters.
+#        assert(False and "not implemented yet.")
+#        initialize = None
+#        if is_const:
+#          initialize = CallRuntime(JSObject("string", "InitializeConstGlobal"),
+#                                   Runtime.FunctionForId(Runtime.kInitializeConstGlobal),
+#                                   arguments)
+#        else:
+#          initialize = CallRuntime(JSObject("string", "InitializeVarGlobal"),
+#                                   Runtime.FunctionForId(Runtime.kInitializeVarGlobal),
+#                                   arguments)
+#        block.AddStatement(ExpressionStatement(initialize))
 
       # Add an assignment node to the initialization statement block if
       # we still have a pending initialization value. We must distinguish
