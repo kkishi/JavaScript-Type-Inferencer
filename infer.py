@@ -4,6 +4,13 @@ import sys
 import copy
 from optparse import OptionParser
 
+def LOG(*args):
+  if not LOG.enabled: return
+  print('// ' + str(args))
+#  S = '//'
+#  for a in args: S += ' ' + str(a)
+#  print(S)
+
 EOF = chr(255)
 
 # Enumeration for allowing octals and ignoring junk when converting
@@ -1360,6 +1367,7 @@ class Assignment(Expression):
     self.block_end = True
 
 class FunctionLiteral(Expression):
+  num_of_instances = 0
   def __init__(self, name, scope, body, num_parameters, is_expression):
     self.name_ = name
     self.scope_ = scope
@@ -1369,6 +1377,7 @@ class FunctionLiteral(Expression):
     self.loop_nesting_ = 0
     self.inferred_name_ = JSObject("string", "")
     self.try_fast_codegen_ = False
+    FunctionLiteral.num_of_instances += 1
 
   def Accept(self, v):
     return v.VisitFunctionLiteral(self)
@@ -2984,8 +2993,6 @@ class PrettyPrinter(AstVisitor):
     elif value.IsString():
       self.W(value.value)
     else:
-      print(value)
-      print(JSFALSE)
       self.W("<unknown literal>")
 
   def VisitLiteral(self, node):
@@ -3041,8 +3048,6 @@ class PrettyPrinter(AstVisitor):
     self.W(";")
 
   def VisitCall(self, node):
-    #print("VisitCall",node.expression())
-
     # True if all types of arguments are monomorphic
     is_monomorphic_call = True
     for arg in node.arguments():
@@ -3112,9 +3117,9 @@ class PrettyPrinter(AstVisitor):
     self.NewlineAndIndent()
     self.W("var ")
     self.PrintLiteral(node.proxy().name(), False)
-    if node.fun() != None:
-      self.W(" = ")
-      self.PrintFunctionLiteral(node.fun())
+#    if node.fun() != None:
+#      self.W(" = ")
+#      self.PrintFunctionLiteral(node.fun())
     self.W(";")
 
   def VisitReturnStatement(self, node):
@@ -3135,6 +3140,7 @@ class PrettyPrinter(AstVisitor):
     self.W(Token.String(node.op()))
     self.Visit(node.right())
     self.W(")")
+    self.PrintTypes(node)
 
   def VisitIfStatement(self, node):
     self.W("if (")
@@ -3432,6 +3438,7 @@ class AstCopier(AstVisitor):
 
   def VisitFunctionLiteral(self, node):
     if not node in self.repos_:
+      LOG('AstCopier.VisitFunctionLiteral(enter)',node,node.name().value)
       flit = FunctionLiteral(self.CopyLiteral(node.name()),
                              self.CopyScope(node.scope()),
                              [self.Visit(stmt) for stmt in node.body()],
@@ -3441,6 +3448,7 @@ class AstCopier(AstVisitor):
       flit.inferred_name_ = self.CopyLiteral(node.inferred_name())
       flit.try_fast_codegen_ = node.try_fast_codegen_
       self.repos_[node] = flit
+      LOG('AstCopier.VisitFunctionLiteral(exit)',node,flit,flit.name().value)
 
     return self.repos_[node]
 
@@ -3448,7 +3456,18 @@ class AstCopier(AstVisitor):
     return ExpressionStatement(self.Visit(node.expression()))
 
   def VisitCall(self, node):
-    return Call(self.Visit(node.expression()),
+#    return Call(self.Visit(node.expression()),
+#                [self.Visit(arg) for arg in node.arguments()])
+    expr = node.expression()
+    if isinstance(expr, VariableProxy):
+      var = expr.var()
+      if var in self.repos_:
+        return Call(self.Visit(node.expression()),
+                    [self.Visit(arg) for arg in node.arguments()])
+      else:
+        LOG("AstCopier.VisitCall",var.name().value,"was not found in this template")
+    LOG("AstCopier.VisitCall",node.expression())
+    return Call(node.expression(),
                 [self.Visit(arg) for arg in node.arguments()])
 
   def VisitVariableProxy(self, node):
@@ -3468,9 +3487,9 @@ class AstCopier(AstVisitor):
     return ReturnStatement(self.Visit(node.expression()))
 
   def VisitConditional(self, node):
-    return Condition(self.Visit(node.condition()),
-                     self.Visit(node.then_expression()),
-                     self.Visit(node.else_expression()))
+    return Conditional(self.Visit(node.condition()),
+                       self.Visit(node.then_expression()),
+                       self.Visit(node.else_expression()))
 
   def VisitCompareOperation(self, node):
     return CompareOperation(node.op(),
@@ -3578,16 +3597,19 @@ class FunctionTemplate:
   def fun(self): return self.fun_
 
 class TemplateRepository:
+  num_of_templates = 0
   def __init__(self, fun):
     self.repos_ = dict()
     self.fun_ = fun
 
   def CreateTemplate(self, types):
     if not types in self.repos_:
+      LOG("CreateTemplate(enter)", self.fun_, self.fun_.name().value, types)
+      TemplateRepository.num_of_templates += 1
       self.repos_[types] = FunctionTemplate(self.fun_)
       for type in types:
         self.repos_[types].fun().name().value += '_' + Type.ToString(type)
-      #print("CreateTemplate", self.fun_, self.repos_[types].fun().name().value, types)
+      LOG("CreateTemplate(exit)", self.fun_, self.repos_[types].fun().name().value, types)
     return self.repos_[types]
 
 def BAILOUT(str):
@@ -3605,11 +3627,13 @@ class Seeder(AstVisitor):
       self.visitor_ = visitor
       self.prev_scope_ = visitor.current_scope_
       visitor.current_scope_ = scope
+      LOG("TemplateScope.__init__",self.visitor_.current_scope_.fun())
 
     def __enter__(self): pass
 
     def __exit__(self, *e):
       if self.activated_:
+        LOG("TemplateScope.__exit__",self.visitor_.current_scope_.fun())
         self.activated_ = False
         self.visitor_.current_scope_ = self.prev_scope_
 
@@ -3633,14 +3657,14 @@ class Seeder(AstVisitor):
     self.Allocate(node)
     self.Seed(node, Type.FUN)
 
-    for i in range(0, node.scope().num_parameters()):
-      self.Visit(node.scope().parameter(i))
+#    for i in range(0, node.scope().num_parameters()):
+#      self.Visit(node.scope().parameter(i))
 
-    for decl in node.scope().declarations():
-      self.Visit(decl)
+#    for decl in node.scope().declarations():
+#      self.Visit(decl)
 
-    for stmt in node.body():
-      self.Visit(stmt)
+#    for stmt in node.body():
+#      self.Visit(stmt)
 
   def VisitDeclaration(self, node):
     var = node.proxy().var()
@@ -3672,14 +3696,19 @@ class Seeder(AstVisitor):
     self.Allocate(node)
 
   def VisitReturnStatement(self, node):
+    assert(self.current_scope_ != None)
     self.Visit(node.expression())
-    #print(self.current_scope_)
+    LOG("Seeder.VisitReturnStatement",self.current_scope_,node.expression())
     if self.current_scope_:
       u = self.GetTypeNode(node.expression())
       v = self.GetTypeNode(self.current_scope_)
       u.AddEdge(v)
 
   def VisitCall(self, node):
+    if isinstance(node.expression(), FunctionLiteral):
+      LOG('Seeder.VisitCall',node.expression(),node.expression().name().value)
+    else:
+      LOG('Seeder.VisitCall',node.expression().var(),node.expression().var().name().value)
 
     def Dfs(depth, callee, concrete_types):
       if (depth == callee.num_parameters()):
@@ -3698,17 +3727,17 @@ class Seeder(AstVisitor):
 #        Seeder_depth -= 1
 #        print(('-' * Seeder_depth * 4) + 'out from ' + fun.name().value)
 
-        for i in range(0, fun.scope().num_parameters()):
-          self.Visit(fun.scope().parameter(i))
+          for i in range(0, fun.scope().num_parameters()):
+            self.Visit(fun.scope().parameter(i))
 
-        for decl in fun.scope().declarations():
-          self.Visit(decl)
+          for decl in fun.scope().declarations():
+            self.Visit(decl)
 
-        for stmt in fun.body():
-          self.Visit(stmt)
+          for stmt in fun.body():
+            self.Visit(stmt)
 
-        for i in range(0, depth):
-          self.Seed(fun.scope().parameter(i), concrete_types[i])
+          for i in range(0, depth):
+            self.Seed(fun.scope().parameter(i), concrete_types[i])
 
         #fun.__type__.AddEdge(node.__type__)
         template.__type__.AddEdge(node.__type__)
@@ -3794,6 +3823,7 @@ class Seeder(AstVisitor):
     self.Allocate(node)
     self.Visit(node.left())
     self.Visit(node.right())
+    self.Seed(node, Type.BOOL)
 
   def VisitIfStatement(self, node):
     self.Visit(node.condition())
@@ -3855,10 +3885,13 @@ def ShowFlit(flit, depth = 0):
 
 def main():
   # parse commandline options
-  myusage = "%prog [-p] < %file"
+  myusage = "%prog [-pl] < %file"
   psr = OptionParser(usage = myusage)
   psr.add_option('-p', action='store_true', dest='print_types')
+  psr.add_option('-l', action='store_true', dest='enable_logging')
   (opts, args) = psr.parse_args(sys.argv)
+
+  LOG.enabled = opts.enable_logging
 
   # create AST
   scanner = Scanner(sys.stdin.read())
@@ -3870,9 +3903,16 @@ def main():
   #ShowFlit(tmpl)
 
   nodes = []
+  iter = 0
   while True:
+    iter += 1
+    LOG("iter", iter)
     Seeder(nodes).Visit(ast)
     if not Propagate(nodes): break
+
+  # print debug info
+  LOG(str(FunctionLiteral.num_of_instances), "function literal")
+  LOG(str(TemplateRepository.num_of_templates), "function templates")
 
   PrettyPrinter(opts.print_types).PrintLn(ast)
   #template = AstCopier().Copy(ast)
