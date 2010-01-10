@@ -3092,6 +3092,7 @@ class PrettyPrinter(AstVisitor):
         self.PrintFunctionLiteral(fun)
         self.W(")")
         self.PrintTypes(fun)
+        self.PrintAddress(fun)
       else:
         with PrettyPrinter.EnterNormalFunctionLiteral(self):
           self.Visit(expr)
@@ -3099,6 +3100,7 @@ class PrettyPrinter(AstVisitor):
       assert(expr.var() != None)
       if self.in_normal_function_literal:
         self.W(expr.var().name().value)
+        self.PrintAddress(expr.var())
       else:
         callee = expr.var().fun()
         if is_monomorphic_call:
@@ -3703,6 +3705,7 @@ class Seeder(AstVisitor):
     AstVisitor.__init__(self)
     self.nodes = nodes
     self.current_scope_ = None  # represents currently analyzed function template.
+    self.analyzed = dict()
 
   def Allocate(self, node):
     if not '__type__' in dir(node):
@@ -3773,33 +3776,28 @@ class Seeder(AstVisitor):
     def Dfs(depth, callee, concrete_types):
       if (depth == callee.num_parameters()):
         template = callee.__repos__.CreateTemplate(tuple(concrete_types))
-        self.Allocate(template)  # has types of return value
-        fun = template.fun()
 
-#        global Seeder_depth
-#        print(('-' * Seeder_depth * 4) + 'into ' + fun.name().value)
-#        Seeder_depth += 1
+        if not template in self.analyzed:
+          self.analyzed[template] = True
 
-#        self.Visit(fun)
-        with Seeder.TemplateScope(self, template) as template_scope:
-          self.Visit(fun)
+          self.Allocate(template)  # holds types of return value
+          fun = template.fun()
 
-#        Seeder_depth -= 1
-#        print(('-' * Seeder_depth * 4) + 'out from ' + fun.name().value)
+          with Seeder.TemplateScope(self, template) as template_scope:
+            self.Visit(fun)
 
-          for i in range(0, fun.scope().num_parameters()):
-            self.Visit(fun.scope().parameter(i))
+            for i in range(0, fun.scope().num_parameters()):
+              self.Visit(fun.scope().parameter(i))
 
-          for decl in fun.scope().declarations():
-            self.Visit(decl)
+            for decl in fun.scope().declarations():
+              self.Visit(decl)
 
-          for stmt in fun.body():
-            self.Visit(stmt)
+            for stmt in fun.body():
+              self.Visit(stmt)
 
-          for i in range(0, depth):
-            self.Seed(fun.scope().parameter(i), concrete_types[i])
+            for i in range(0, depth):
+              self.Seed(fun.scope().parameter(i), concrete_types[i])
 
-        #fun.__type__.AddEdge(node.__type__)
         self.Connect(template, node)
 
       else:
