@@ -3088,17 +3088,20 @@ class PrettyPrinter(AstVisitor):
   class EnterNormalFunctionLiteral:
     def __init__(self, visitor):
       self.visitor = visitor
-      self.prev_state = visitor.in_normal_function_literal
-      visitor.in_normal_function_literal = True
+      self.prev_state = visitor.in_original_function_literal
+      visitor.in_original_function_literal = True
     def __enter__(self): pass
     def __exit__(self, *e):
-      self.visitor.in_normal_function_literal = self.prev_state
+      self.visitor.in_original_function_literal = self.prev_state
 
   def __init__(self, print_types = False, print_address = False):
     AstVisitor.__init__(self)
     self.print_types = print_types
     self.print_address = print_address
-    self.in_normal_function_literal = False
+    # whether printing function literal in original AST or not.
+    # if we are printing original one, say, generic version, no type informations
+    # are seeded so no need to print the informations.
+    self.in_original_function_literal = False
     self.nest = 0
     self.buffer = ""
 
@@ -3115,7 +3118,7 @@ class PrettyPrinter(AstVisitor):
 
   def PrintTypes(self, node):
     if not self.print_types: return
-    if self.in_normal_function_literal: return
+    if self.in_original_function_literal: return
     self.W('/*')
     for i in range(0, len(node.__type__.types)):
       if i > 0:
@@ -3208,7 +3211,7 @@ class PrettyPrinter(AstVisitor):
     self.W(';')
 
   def VisitCall(self, node):
-    if self.in_normal_function_literal:
+    if self.in_original_function_literal:
       is_monomorphic_call = False
       arg_types = ()
     else:
@@ -3238,7 +3241,7 @@ class PrettyPrinter(AstVisitor):
           self.Visit(expr)
     elif isinstance(expr, VariableProxy):
       assert(expr.var() != None)
-      if self.in_normal_function_literal:
+      if self.in_original_function_literal:
         self.W(expr.var().name().value)
         self.PrintAddress(expr.var())
       else:
@@ -3277,7 +3280,7 @@ class PrettyPrinter(AstVisitor):
       self.Visit(arguments[i])
 
   def VisitDeclaration(self, node):
-    if node.fun() != None and not self.in_normal_function_literal:
+    if node.fun() != None and not self.in_original_function_literal:
       repos = node.fun().__repos__
       for key in repos.repos_:
         fun = repos.repos_[key].fun()
