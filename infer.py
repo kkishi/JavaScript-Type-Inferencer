@@ -1124,6 +1124,8 @@ class Literal(Expression):
     return self.handle_ == JSTRUE
   def IsFalse(self):
     return self.handle_ == JSFALSE
+  def IsUndefined(self):
+    return self.handle_ == JSUNDEFINED
 
   def handle(self):
     return self.handle_
@@ -2039,7 +2041,7 @@ class Parser:
     return result
 
   def GetLiteralUndefined(self):
-    return JSUNDEFINED
+    return Literal(JSUNDEFINED)
 
   def Declare(self, name, mode, fun, resolve):
     var = None
@@ -2642,7 +2644,7 @@ class Parser:
       # error at runtime.
       if expression == None or not expression.IsValidLeftHandSide():
         assert(false)
-      return CountOperation(true, op, expression)
+      return CountOperation(True, op, expression)
     else:
       return self.ParsePostfixExpression()
 
@@ -3007,6 +3009,8 @@ class PrettyPrinter(AstVisitor):
       self.W("true")
     elif value == JSFALSE:
       self.W("false")
+    elif value == JSUNDEFINED:
+      self.W("undefined")
     elif value.IsNumber():
       self.W(str(value.value))
     elif value.IsString():
@@ -3622,12 +3626,13 @@ class Type:
   STR = 3
   FUN = 4
   NULL = 5
+  UNDEFINED = 6
   UNKNOWN = 10
 
   @staticmethod
   def ToString(type):
     for T in ((Type.INT, "INT"), (Type.FLOAT, "FLOAT"), (Type.BOOL, "BOOL"),
-              (Type.STR, "STR"), (Type.FUN, "FUN"),
+              (Type.STR, "STR"), (Type.FUN, "FUN"), (Type.UNDEFINED, "UNDEF"),
               (Type.NULL, "NULL"), (Type.UNKNOWN, "UNKNOWN")):
       if T[0] == type:
         return T[1]
@@ -3650,6 +3655,10 @@ class TypeNode:
           constraint.types.append(type);
           constraint.Propagate()
     return ret
+
+class BinOpTypeNode(TypeNode):
+  def __init__(self):
+    TypeNode.__init__(self)
 
 class FunctionTemplate:
   def __init__(self, fun):
@@ -3855,6 +3864,8 @@ class Seeder(AstVisitor):
       type = Type.NULL
     elif node.IsTrue() or node.IsFalse():
       type = Type.BOOL
+    elif node.IsUndefined():
+      type = Type.UNDEFINED
     elif node.handle().IsNumber():
       type = Type.INT
     else:
@@ -3947,6 +3958,9 @@ def ShowFlit(flit, depth = 0):
 
   print'-'*50
 
+# dummy definitions for helping type inference.
+BUILTIN_FUNCTIONS = ['function print(a) { return; }']
+
 def main():
   # parse commandline options
   myusage = "%prog [-pl] < %file"
@@ -3959,7 +3973,9 @@ def main():
   LOG.enabled = opts.enable_logging
 
   # create AST
-  scanner = Scanner(sys.stdin.read())
+  source = sys.stdin.read()
+  for f in BUILTIN_FUNCTIONS: source = f + source
+  scanner = Scanner(source)
   parser = Parser(scanner)
   ast = parser.ParseProgram(True)
 
