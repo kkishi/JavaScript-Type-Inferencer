@@ -1066,6 +1066,24 @@ class IterationStatement(BreakableStatement):
   def Initialize(self, body):
     self.body_ = body
 
+class WhileStatement(IterationStatement):
+  def __init__(self, labels):
+    IterationStatement.__init__(self, labels)
+    self.cond_ = None
+    self.may_have_function_literal_ = True
+
+  def Initialize(self, cond, body):
+    IterationStatement.Initialize(self, body)
+    self.cond_ = cond
+
+  def Accept(self, v):
+    return v.VisitWhileStatement(self)
+
+  def cond(self): return self.cond_
+  def may_have_function_literal(self):
+    # True if there is a function literal subexpression in the condition.
+    return self.may_have_function_literal_
+
 class ForStatement(IterationStatement):
   def __init__(self, labels):
     IterationStatement.__init__(self, labels)
@@ -2885,6 +2903,22 @@ class Parser:
     self.ExpectSemicolon()
     return ReturnStatement(expr)
 
+  def ParseWhileStatement(self, labels):
+    # WhileStatement ::
+    #   'while' '(' Expression ')' Statement
+
+    loop = WhileStatement(labels)
+    #target(this, loop)
+
+    self.Expect(Token.WHILE)
+    self.Expect(Token.LPAREN)
+    cond = self.ParseExpression(True)
+    self.Expect(Token.RPAREN)
+    body = self.ParseStatement(None)
+
+    if loop != None: loop.Initialize(cond, body)
+    return loop
+
   def ParseForStatement(self, labels):
     # ForStatement ::
     #   'for' '(' Expression? ';' Expression? ';' Expression? ')' Statement
@@ -3305,9 +3339,18 @@ class PrettyPrinter(AstVisitor):
         self.PrintFunctionLiteral(node.fun())
     self.W(";")
 
-  def VisitForStatement(self, node):
+  def VisitWhileStatement(self, node):
+    #PrintLabels(node->labels());
     self.NewlineAndIndent()
-    self.W('for (');
+    self.W('while (')
+    self.Visit(node.cond())
+    self.W(") ")
+    self.Visit(node.body())
+
+  def VisitForStatement(self, node):
+    #PrintLabels(node->labels());
+    self.NewlineAndIndent()
+    self.W('for (')
     if node.init() != None:
       self.Visit(node.init())
       self.W(' ')
@@ -3353,12 +3396,18 @@ class PrettyPrinter(AstVisitor):
       self.W(" else ")
       self.Visit(node.else_statement())
 
+  def VisitUnaryOperation(self, node):
+    self.W('(' + Token.String(node.op()))
+    self.Visit(node.expression())
+    self.W(')')
+
   def VisitCountOperation(self, node):
     self.W("(")
     if node.is_prefix(): self.W(Token.String(node.op()))
     self.Visit(node.expression())
     if node.is_postfix(): self.W(Token.String(node.op()))
     self.W(")")
+    self.PrintTypes(node)
 
   def VisitBinaryOperation(self, node):
     self.W("(")
@@ -3707,6 +3756,13 @@ class AstCopier(AstVisitor):
                        node.mode(),
                        None if node.fun() == None else self.Visit(node.fun()))
 
+  def VisitWhileStatement(self, node):
+    def MaybeVisit(N): return self.Visit(N) if N else None
+    ret = WhileStatement(None)
+    ret.Initialize(MaybeVisit(node.cond()),
+                   MaybeVisit(node.body()))
+    return ret
+
   def VisitForStatement(self, node):
     def MaybeVisit(N): return self.Visit(N) if N else None
     ret = ForStatement(None)
@@ -3734,6 +3790,10 @@ class AstCopier(AstVisitor):
                        self.Visit(node.then_statement()),
                        self.Visit(node.else_statement())
                        if node.HasElseStatement() else None)
+
+  def VisitUnaryOperation(self, node):
+    return UnaryOperation(node.op(),
+                          self.Visit(node.expression()));
 
   def VisitCountOperation(self, node):
     return CountOperation(node.is_prefix(),
@@ -3806,13 +3866,20 @@ class Type:
   FUN = 4
   NULL = 5
   UNDEFINED = 6
+  NaN = 7
   UNKNOWN = 10
 
   @staticmethod
   def ToString(type):
-    for T in ((Type.INT, "INT"), (Type.FLOAT, "FLOAT"), (Type.BOOL, "BOOL"),
-              (Type.STR, "STR"), (Type.FUN, "FUN"), (Type.UNDEFINED, "UNDEF"),
-              (Type.NULL, "NULL"), (Type.UNKNOWN, "UNKNOWN")):
+    for T in ((Type.INT, "INT"),
+              (Type.FLOAT, "FLOAT"),
+              (Type.BOOL, "BOOL"),
+              (Type.STR, "STR"),
+              (Type.FUN, "FUN"),
+              (Type.NULL, "NULL"),
+              (Type.UNDEFINED, "UNDEF"),
+              (Type.NaN, "NaN"),
+              (Type.UNKNOWN, "UNKNOWN")):
       if T[0] == type:
         return T[1]
     assert(False)
@@ -3948,11 +4015,19 @@ class Seeder(AstVisitor):
   def VisitVariable(self, node):
     self.Allocate(node)
 
+  def VisitWhileStatement(self, node):
+    def MaybeVisit(N):
+      if N: self.Visit(N)
+    MaybeVisit(node.cond())
+    MaybeVisit(node.body())
+
   def VisitForStatement(self, node):
-    if node.init() != None: self.Visit(node.init())
-    if node.cond() != None: self.Visit(node.cond())
-    if node.next() != None: self.Visit(node.next())
-    if node.body() != None: self.Visit(node.body())
+    def MaybeVisit(N):
+      if N: self.Visit(N)
+    MaybeVisit(node.init())
+    MaybeVisit(node.cond())
+    MaybeVisit(node.next())
+    MaybeVisit(node.body())
 
   def VisitReturnStatement(self, node):
     assert(self.current_scope_ != None)
@@ -4028,11 +4103,43 @@ class Seeder(AstVisitor):
     else:
       assert(False)
 
+  def VisitUnaryOperation(self, node):
+    self.Allocate(node)
+    self.Visit(node.expression())  # NOTE(keisuke): maybe no need to do
+    if node.op() == Token.NOT or node.op() == Token.DELETE:
+      self.Seed(node, Type.BOOL)
+    elif node.op() == Token.BIT_NOT:
+      self.Seed(node, Type.INT)
+    elif node.op() == Tokne.VOID:
+      self.Seed(node, Type.UNDEF)
+    elif node.op() == Token.TYPEOF:
+      assert(False)  # NOTE(keisuke): not implemented
+    else:
+      assert(False)
+    self.Connect(node.expression(), node)
+
   def VisitCountOperation(self, node):
     # TODO(keisuke): need to investigate what happens if we do ('foo')++
+    # for example...
+    # v = 42,    ++v; // v -> 43
+    # v = 'str', ++v; // v -> NaN
+    # v = '42',  ++v; // v -> 43
+    # v = [],    ++v; // v -> 1
+    # v = [42],  ++v; // v -> 43
+    # v = {},    ++v; // v -> Nan
     self.Allocate(node)
     self.Visit(node.expression())
-    self.Connect(node.expression(), node)
+    #self.Connect(node.expression(), node)
+
+    # if node.expression() has a type which is not Type.INT, we conservatively
+    # seed Type.NaN to node.
+    exp_types = self.GetTypeNode(node.expression()).types
+    if len(exp_types) == 1 and exp_types[0] == Type.INT:
+      self.Seed(node, Type.INT)
+    elif len(exp_types) >= 1:
+      for type in exp_types:
+        if type != Type.INT:
+          self.Seed(node, Type.NaN)
 
   def VisitBinaryOperation(self, node):
     self.Allocate(node)
