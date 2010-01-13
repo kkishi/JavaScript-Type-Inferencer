@@ -1048,6 +1048,48 @@ class Declaration(AstNode):
   def fun(self):
     return self.fun_
 
+class IterationStatement(BreakableStatement):
+  # Type testing & conversion.
+  def AsIterationStatement(self): return self
+
+  def body(self): return self.body_
+
+  # Code generation
+  #BreakTarget* continue_target()  { return &continue_target_; }
+  # continue_target_ should be [None] (list with one element)
+  def continue_target(self): return self.continue_target_
+
+  def __init__(self, labels):
+    BreakableStatement.__init__(self, labels, self.TARGET_FOR_ANONYMOUS)
+    self.body_ = None
+
+  def Initialize(self, body):
+    self.body_ = body
+
+class ForStatement(IterationStatement):
+  def __init__(self, labels):
+    IterationStatement.__init__(self, labels)
+    self.init_ = None
+    self.cond_ = None
+    self.next_ = None
+    self.may_have_function_literal_ = True
+
+  def Initialize(self, init, cond, next, body):
+    IterationStatement.Initialize(self, body)
+    self.init_ = init
+    self.cond_ = cond
+    self.next_ = next
+
+  def Accept(self, v):
+    return v.VisitForStatement(self)
+
+  def init(self): return self.init_
+  def cond(self): return self.cond_
+  def next(self): return self.next_
+  def may_have_function_literal():
+    # True if there is a function literal subexpression in the condition.
+    return self.may_have_function_literal_
+
 class ExpressionStatement(Statement):
   def __init__(self, expression):
     self.expression_ = expression
@@ -2843,6 +2885,93 @@ class Parser:
     self.ExpectSemicolon()
     return ReturnStatement(expr)
 
+  def ParseForStatement(self, labels):
+    # ForStatement ::
+    #   'for' '(' Expression? ';' Expression? ';' Expression? ')' Statement
+
+    init = None
+
+    self.Expect(Token.FOR)
+    self.Expect(Token.LPAREN)
+    if self.peek() != Token.SEMICOLON:
+      if self.peek() == Token.VAR or self.peek() == Token.CONST:
+        each = [None]
+        variable_statement = self.ParseVariableDeclarations(False, each)
+        if self.peek() == Token.IN and each[0] != None:
+          loop = ForInStatement(labels)
+          target(self, loop)
+
+          self.Expect(Token.IN)
+          enumerable = self.ParseExpression(True)
+          self.Expect(Token.RPAREN)
+
+          body = self.ParseStatement(None)
+          #if (is_pre_parsing_) {
+          if False:
+            return None
+          else:
+            loop.Initialize(each, enumerable, body)
+            result = Block(None, 2, False)
+            result.AddStatement(variable_statement)
+            result.AddStatement(loop)
+            # Parsed for-in loop w/ variable/const declaration.
+            return result
+
+        else:
+          init = variable_statement
+
+      else:
+        expression = self.ParseExpression(False)
+        if self.peek() == Token.IN:
+          raise Exception('not implemented')
+          # Signal a reference error if the expression is an invalid
+          # left-hand side expression.  We could report this as a syntax
+          # error here but for compatibility with JSC we choose to report
+          # the error at runtime.
+          if expression == None or not expression.IsValidLeftHandSide():
+            assert(False)
+            #Handle<String> type = Factory::invalid_lhs_in_for_in_symbol();
+            #expression = NewThrowReferenceError(type);
+
+          loop = ForInStatement(labels)
+          target(self, loop)
+
+          self.Expect(Token.IN)
+          enumerable = self.ParseExpression(True)
+          self.Expect(Token.RPAREN)
+
+          body = self.ParseStatement(None)
+          if loop: loop.Initialize(expression, enumerable, body)
+
+          # Parsed for-in loop.
+          return loop
+
+        else:
+          init = ExpressionStatement(expression)
+
+    # Standard 'for' loop
+    loop = ForStatement(labels)
+    #target = (self, loop)
+
+    # Parsed initializer at this point.
+    self.Expect(Token.SEMICOLON)
+
+    cond = None
+    if self.peek() != Token.SEMICOLON:
+      cond = self.ParseExpression(True)
+    self.Expect(Token.SEMICOLON)
+
+    next = None
+    if self.peek() != Token.RPAREN:
+      exp = self.ParseExpression(True)
+      next = ExpressionStatement(exp)
+    self.Expect(Token.RPAREN)
+
+    body = self.ParseStatement(None)
+
+    if loop: loop.Initialize(init, cond, next, body)
+    return loop
+
   def ParseExpressionOrLabelledStatement(self, labels):
     # ExpressionStatement | LabelledStatement ::
     #   Expression ';'
@@ -3166,6 +3295,22 @@ class PrettyPrinter(AstVisitor):
         self.PrintFunctionLiteral(node.fun())
     self.W(";")
 
+  def VisitForStatement(self, node):
+    self.NewlineAndIndent()
+    self.W('for (');
+    if node.init() != None:
+      self.Visit(node.init())
+      self.W(' ')
+    else:
+      self.W('; ')
+    if node.cond() != None: self.Visit(node.cond())
+    self.W('; ')
+    if node.next() != None:
+      self.Visit(node.next())  # prints extra ';', unfortunately
+      # to fix: should use Expression for next
+    self.W(') ')
+    self.Visit(node.body())
+
   def VisitReturnStatement(self, node):
     self.W("return ")
     self.Visit(node.expression())
@@ -3197,6 +3342,13 @@ class PrettyPrinter(AstVisitor):
     if node.HasElseStatement():
       self.W(" else ")
       self.Visit(node.else_statement())
+
+  def VisitCountOperation(self, node):
+    self.W("(")
+    if node.is_prefix(): self.W(Token.String(node.op()))
+    self.Visit(node.expression())
+    if node.is_postfix(): self.W(Token.String(node.op()))
+    self.W(")")
 
   def VisitBinaryOperation(self, node):
     self.W("(")
@@ -3542,6 +3694,14 @@ class AstCopier(AstVisitor):
                        node.mode(),
                        None if node.fun() == None else self.Visit(node.fun()))
 
+  def VisitForStatement(self, node):
+    ret = ForStatement(None)
+    ret.Initialize(self.Visit(node.init()),
+                   self.Visit(node.cond()),
+                   self.Visit(node.next()),
+                   self.Visit(node.body()))
+    return ret
+
   def VisitReturnStatement(self, node):
     return ReturnStatement(self.Visit(node.expression()))
 
@@ -3560,6 +3720,11 @@ class AstCopier(AstVisitor):
                        self.Visit(node.then_statement()),
                        self.Visit(node.else_statement())
                        if node.HasElseStatement() else None)
+
+  def VisitCountOperation(self, node):
+    return CountOperation(node.is_prefix(),
+                          node.op(),
+                          self.Visit(node.expression()))
 
   def VisitBinaryOperation(self, node):
     return BinaryOperation(node.op(),
@@ -3769,6 +3934,12 @@ class Seeder(AstVisitor):
   def VisitVariable(self, node):
     self.Allocate(node)
 
+  def VisitForStatement(self, node):
+    if node.init() != None: self.Visit(node.init())
+    if node.cond() != None: self.Visit(node.cond())
+    if node.next() != None: self.Visit(node.next())
+    if node.body() != None: self.Visit(node.body())
+
   def VisitReturnStatement(self, node):
     assert(self.current_scope_ != None)
     self.Visit(node.expression())
@@ -3842,6 +4013,12 @@ class Seeder(AstVisitor):
       Dfs(0, callee, [])
     else:
       assert(False)
+
+  def VisitCountOperation(self, node):
+    # TODO(keisuke): need to investigate what happens if we do ('foo')++
+    self.Allocate(node)
+    self.Visit(node.expression())
+    self.Connect(node.expression(), node)
 
   def VisitBinaryOperation(self, node):
     self.Allocate(node)
