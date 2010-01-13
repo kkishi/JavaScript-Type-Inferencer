@@ -2208,7 +2208,7 @@ class Parser:
     top = result[0].scope()
     top.AllocateVariables(None)
 
-    return Call(result[0], [])
+    return ExpressionStatement(Call(result[0], []))
     #return result[0]
 
   def ParseSourceElements(self, processor, end_token):
@@ -3411,10 +3411,25 @@ class PrettyPrinter(AstVisitor):
     self.W(")")
     self.PrintTypes(node)
 
+  def MaybePrintSpecializedOperation(self, ltype, rtype, op):
+    if len(ltype) == 1 and ltype[0] == Type.INT and \
+       len(rtype) == 1 and rtype[0] == Type.INT and \
+       op == Token.ADD:
+      self.W('.+')
+    else:
+      self.W(Token.String(op))
+
   def VisitBinaryOperation(self, node):
     self.W("(")
     self.Visit(node.left())
-    self.W(Token.String(node.op()))
+
+    if not self.in_original_function_literal:
+      self.MaybePrintSpecializedOperation(Seeder.GetTypeNode(node.left()).types,
+                                          Seeder.GetTypeNode(node.right()).types,
+                                          node.op())
+    else:
+      self.W(Token.String(node.op()))
+
     self.Visit(node.right())
     self.W(")")
     self.PrintTypes(node)
