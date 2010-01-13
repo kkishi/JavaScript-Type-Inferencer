@@ -44,6 +44,8 @@ def IsLineTerminator(c):
 def IsIdentifierPart(c):
   return IsIdentifierStart(c) or IsDecimalDigit(c) or c == '_';
 
+def DoubleToInt32(c):
+  return int(c)
 
 class Token:
   tokens_ = [
@@ -4177,9 +4179,11 @@ class Seeder(AstVisitor):
       self.Visit(stmt)
 
   def VisitAssignment(self, node):
+    self.Allocate(node)
     self.Visit(node.target().var())
     self.Visit(node.value())
-    self.Connect(node.value(), node.target().var())
+    self.Connect(node.value(), node.target().var())  # type of variable
+    self.Connect(node.value(), node)  # type of this expression
 
   def VisitConditional(self, node):
     self.Allocate(node)
