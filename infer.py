@@ -2302,7 +2302,7 @@ class Parser:
     name = self.ParseIdentifier()
     fun = self.ParseFunctionLiteral(name, Parser.DECLARATION)
     self.Declare(name, Variable.VAR, fun, True)
-    return None
+    return EmptyStatement()
 
   def ParseBlock(self, labels):
     # Block ::
@@ -3015,7 +3015,7 @@ class Parser:
 
     elif peek == Token.SEMICOLON:
       self.Next()
-      return None
+      return EmptyStatement()
 
     elif peek == Token.IF:
       stmt = self.ParseIfStatement(labels)
@@ -3102,8 +3102,12 @@ class PrettyPrinter(AstVisitor):
     self.nest = 0
     self.buffer = ""
 
-  def W(self, str):
-    self.buffer += str
+  def W(self, S):
+    self.buffer += S
+
+  # remove characters
+  def R(self, I):
+    self.buffer = self.buffer[0:len(self.buffer) - I]
 
   def NewlineAndIndent(self):
     self.W("\n")
@@ -3182,7 +3186,7 @@ class PrettyPrinter(AstVisitor):
     self.W("function ")
     self.PrintLiteral(function.name(), False)
     self.PrintParameters(function.scope())
-    self.W(" { ")
+    self.W(" {")
     self.nest += 1
     self.PrintDeclarations(function.scope().declarations())
     self.PrintStatements(function.body())
@@ -3199,6 +3203,9 @@ class PrettyPrinter(AstVisitor):
   def VisitExpressionStatement(self, node):
     self.Visit(node.expression())
     self.W(";")
+
+  def VisitEmptyStatement(self, node):
+    self.W(';')
 
   def VisitCall(self, node):
     if self.in_normal_function_literal:
@@ -3307,7 +3314,7 @@ class PrettyPrinter(AstVisitor):
     self.W('; ')
     if node.next() != None:
       self.Visit(node.next())  # prints extra ';', unfortunately
-      # to fix: should use Expression for next
+      self.R(1) # remove extra ';'
     self.W(') ')
     self.Visit(node.body())
 
@@ -3656,6 +3663,9 @@ class AstCopier(AstVisitor):
   def VisitExpressionStatement(self, node):
     return ExpressionStatement(self.Visit(node.expression()))
 
+  def VisitEmptyStatement(self, node):
+    return EmptyStatement()
+
   def VisitCall(self, node):
 #    return Call(self.Visit(node.expression()),
 #                [self.Visit(arg) for arg in node.arguments()])
@@ -3695,11 +3705,12 @@ class AstCopier(AstVisitor):
                        None if node.fun() == None else self.Visit(node.fun()))
 
   def VisitForStatement(self, node):
+    def MaybeVisit(N): return self.Visit(N) if N else None
     ret = ForStatement(None)
-    ret.Initialize(self.Visit(node.init()),
-                   self.Visit(node.cond()),
-                   self.Visit(node.next()),
-                   self.Visit(node.body()))
+    ret.Initialize(MaybeVisit(node.init()),
+                   MaybeVisit(node.cond()),
+                   MaybeVisit(node.next()),
+                   MaybeVisit(node.body()))
     return ret
 
   def VisitReturnStatement(self, node):
@@ -4032,6 +4043,8 @@ class Seeder(AstVisitor):
   def VisitExpressionStatement(self, node):
     self.Allocate(node)
     self.Visit(node.expression())
+
+  def VisitEmptyStatement(self, node): pass
 
   def VisitLiteral(self, node):
     self.Allocate(node)
