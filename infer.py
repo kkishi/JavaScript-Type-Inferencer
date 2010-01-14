@@ -98,26 +98,6 @@ class Token:
     ("SAR", ">>", 11),
     ("SHR", ">>>", 11),
     ("ADD", "+", 12),
-    ("IADD", ".+", 12),
-    ("SUB", "-", 12),
-    ("MUL", "*", 13),
-    ("DIV", "/", 13),
-    ("MOD", "%", 13),
-
-    # Binary operators sorted by precedence.
-    # IsBinaryOp() relies on this block of enum values
-    # being contiguous and sorted in the same order!
-    ("COMMA", ",", 1),
-    ("OR", "||", 4),
-    ("AND", "&&", 5),
-    ("BIT_OR", "|", 6),
-    ("BIT_XOR", "^", 7),
-    ("BIT_AND", "&", 8),
-    ("SHL", "<<", 11),
-    ("SAR", ">>", 11),
-    ("SHR", ">>>", 11),
-    ("ADD", "+", 12),
-    ("IADD", ".+", 12),
     ("SUB", "-", 12),
     ("MUL", "*", 13),
     ("DIV", "/", 13),
@@ -3412,8 +3392,8 @@ class PrettyPrinter(AstVisitor):
     self.PrintTypes(node)
 
   def MaybePrintSpecializedOperation(self, ltype, rtype, op):
-    if len(ltype) == 1 and ltype[0] == Type.INT and \
-       len(rtype) == 1 and rtype[0] == Type.INT and \
+    if len(ltype) == 1 and ltype[0] == Type.SMI and \
+       len(rtype) == 1 and rtype[0] == Type.SMI and \
        op == Token.ADD:
       self.W('.+')
     else:
@@ -3876,8 +3856,8 @@ class AstCopier(AstVisitor):
     return self.Visit(node)
 
 class Type:
-  INT = 0
-  FLOAT = 1
+  SMI = 0
+  NUM = 1
   BOOL = 2
   STR = 3
   FUN = 4
@@ -3888,8 +3868,8 @@ class Type:
 
   @staticmethod
   def ToString(type):
-    for T in ((Type.INT, "INT"),
-              (Type.FLOAT, "FLOAT"),
+    for T in ((Type.SMI, "SMI"),
+              (Type.NUM, "NUM"),
               (Type.BOOL, "BOOL"),
               (Type.STR, "STR"),
               (Type.FUN, "FUN"),
@@ -3920,8 +3900,86 @@ class TypeNode:
     return ret
 
 class BinOpTypeNode(TypeNode):
-  def __init__(self):
+  def __init__(self, left, right, op):
     TypeNode.__init__(self)
+    self.left_ = left
+    self.right_ = right
+    self.op_ = op
+
+  def GetResultType(self, ltype, rtype):
+    lsmi = (ltype in [Type.SMI, Type.BOOL])
+    rsmi = (rtype in [Type.SMI, Type.BOOL])
+
+    # ("COMMA", ",", 1),
+    # not implemented
+
+    # ("OR", "||", 4),
+    # ("AND", "&&", 5),
+    # not implemented
+
+    # ("BIT_OR", "|", 6),
+    # ("BIT_XOR", "^", 7),
+    if self.op_ == Token.BIT_OR or self.op_ == Token.BIT_XOR:
+      if lsmi and rsmi:
+        return Type.SMI
+      else:
+        return Type.NUM
+
+    # ("BIT_AND", "&", 8),
+    if self.op_ == Token.BIT_AND:
+      if lsmi or rsmi:
+        return Type.SMI
+      else:
+        return Type.NUM
+
+    # ("SHL", "<<", 11),
+    if self.op_ == Token.SHL:
+      return Type.NUM
+
+    # ("SAR", ">>", 11),
+    # ("SHR", ">>>", 11),
+    if self.op_ == Token.SAR or self.op_ == Token.SHR:
+      if lsmi:
+        return Type.SMI
+      else:
+        return Type.NUM
+
+    # ("ADD", "+", 12),
+    if self.op_ == Token.ADD:
+      if ltype == Type.STR or rtype == Type.STR:
+        return Type.STR
+      elif lsmi and rsmi:
+        return Type.SMI  # optimistic...
+      else:
+        return Type.NUM
+
+    # ("SUB", "-", 12),
+    # ("MUL", "*", 13),
+    if self.op_ == Token.SUB or self.op_ == Token.MUL:
+      if lsmi and rsmi:
+        return Type.SMI  # optimistic...
+      else:
+        return Type.NUM
+    # ("DIV", "/", 13),
+    # ("MOD", "%", 13),
+    if self.op_ == Token.DIV or self.op_ == Token.MOD:
+      return Type.NUM
+
+    assert(False)
+
+  def Propagate(self):
+    ret = False
+    for ltype in Seeder.GetTypeNode(self.left_).types:
+      for rtype in Seeder.GetTypeNode(self.right_).types:
+        type = self.GetResultType(ltype, rtype)
+        if not type in self.types:
+          ret = True
+          self.types.append(type)
+          for constraint in self.constraints:
+            if not type in constraint.types:
+              constraint.types.append(type)
+              constraint.Propagate()
+    return ret
 
 class FunctionTemplate:
   def __init__(self, fun):
@@ -3984,6 +4042,11 @@ class Seeder(AstVisitor):
       node.__type__ = TypeNode()
       if isinstance(node, FunctionLiteral):
         node.__repos__ = TemplateRepository(node)
+      self.nodes.append(node.__type__)
+
+  def AllocateBinOpTypeNode(self, node, left, right, op):
+    if not '__type__' in dir(node):
+      node.__type__ = BinOpTypeNode(left, right, op)
       self.nodes.append(node.__type__)
 
   def Seed(self, node, type):
@@ -4126,7 +4189,7 @@ class Seeder(AstVisitor):
     if node.op() == Token.NOT or node.op() == Token.DELETE:
       self.Seed(node, Type.BOOL)
     elif node.op() == Token.BIT_NOT:
-      self.Seed(node, Type.INT)
+      self.Seed(node, Type.SMI)
     elif node.op() == Tokne.VOID:
       self.Seed(node, Type.UNDEF)
     elif node.op() == Token.TYPEOF:
@@ -4148,24 +4211,21 @@ class Seeder(AstVisitor):
     self.Visit(node.expression())
     #self.Connect(node.expression(), node)
 
-    # if node.expression() has a type which is not Type.INT, we conservatively
+    # if node.expression() has a type which is not Type.SMI, we conservatively
     # seed Type.NaN to node.
     exp_types = self.GetTypeNode(node.expression()).types
-    if len(exp_types) == 1 and exp_types[0] == Type.INT:
-      self.Seed(node, Type.INT)
+    if len(exp_types) == 1 and exp_types[0] == Type.SMI:
+      self.Seed(node, Type.SMI)
     elif len(exp_types) >= 1:
       for type in exp_types:
-        if type != Type.INT:
+        if type != Type.SMI:
           self.Seed(node, Type.NaN)
 
   def VisitBinaryOperation(self, node):
-    self.Allocate(node)
-
     self.Visit(node.left())
     self.Visit(node.right())
 
-    self.Connect(node.left(), node)
-    self.Connect(node.right(), node)
+    self.AllocateBinOpTypeNode(node, node.left(), node.right(), node.op())
 
   def VisitExpressionStatement(self, node):
     self.Allocate(node)
@@ -4184,7 +4244,7 @@ class Seeder(AstVisitor):
     elif node.IsUndefined():
       type = Type.UNDEFINED
     elif node.handle().IsNumber():
-      type = Type.INT
+      type = Type.SMI
     else:
       type = Type.UNKNOWN
     self.Seed(node, type)
