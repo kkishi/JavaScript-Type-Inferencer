@@ -230,8 +230,8 @@ class Token:
 
   @staticmethod
   def IsUnaryOp(op):
-    return Token.NOT <= op and op <= Token.VOID or \
-           op == Token.ADD or op == Token.SUB
+    return (Token.NOT <= op and op <= Token.VOID or
+            op == Token.ADD or op == Token.SUB)
 
   @staticmethod
   def IsCountOp(op):
@@ -866,20 +866,20 @@ class Variable:
     return not self.is_this() and self.name_.value == n.value
 
   def is_dynamic(self):
-    return self.mode_ == self.DYNAMIC or \
-           self.mode_ == self.DYNAMIC_GLOBAL or \
-           self.mode_ == self.DYNAMIC_LOCAL
+    return (self.mode_ == self.DYNAMIC or
+            self.mode_ == self.DYNAMIC_GLOBAL or
+            self.mode_ == self.DYNAMIC_LOCAL)
 
   def is_global(self):
     # Temporaries are never global, they must always be allocated in the
     # activation frame.
-    return self.mode_ != self.TEMPORARY and self.scope_ != None and \
-           self.scope_.is_global_scope()
+    return (self.mode_ != self.TEMPORARY and self.scope_ != None and
+            self.scope_.is_global_scope())
   def is_this(self): return self.kind_ == self.THIS
 
   def is_possibly_eval(self):
-    return self.IsVariable("eval") and \
-      (self.mode_ == self.DYNAMIC or self.mode_ == self.DYNAMIC_GLOBAL)
+    return (self.IsVariable("eval") and
+            (self.mode_ == self.DYNAMIC or self.mode_ == self.DYNAMIC_GLOBAL))
 
   def local_if_not_shadowed(self):
     assert(self.mode_ == self.DYNAMIC_LOCAL and self.local_if_not_shadowed_ != None)
@@ -1507,7 +1507,7 @@ class Scope:
     # At some point we might want to provide outer scopes to
     # eval scopes (by walking the stack and reading the scope info).
     # In that case, the ASSERT below needs to be adjusted.
-    assert((type == self.GLOBAL_SCOPE or self.EVAL_SCOPE) == \
+    assert((type == self.GLOBAL_SCOPE or self.EVAL_SCOPE) ==
            (self.outer_scope_ == None))
 
   def SetScopeName(self, scope_name):
@@ -1516,8 +1516,8 @@ class Scope:
   def Initialize(self, inside_with):
     if not self.outer_scope_ == None:
       self.outer_scope_.inner_scopes_.append(self)
-      self.scope_inside_with_ = self.outer_scope_.scope_inside_with_ or \
-        inside_with
+      self.scope_inside_with_ = (self.outer_scope_.scope_inside_with_ or
+                                 inside_with)
     else:
       self.scope_inside_with_ = inside_with
 
@@ -1619,10 +1619,10 @@ class Scope:
     # Give var a read/write use if there is a chance it might be accessed
     # via an eval() call.  This is only possible if the variable has a
     # visible name.
-    if (var.is_this() or len(var.name().value) > 0) and           \
-       (var.is_accessed_from_inner_scope_ or                      \
-        self.scope_calls_eval_ or self.inner_scope_calls_eval_ or \
-        self.scope_contains_with_):
+    if ((var.is_this() or len(var.name().value) > 0) and
+        (var.is_accessed_from_inner_scope_ or
+         self.scope_calls_eval_ or self.inner_scope_calls_eval_ or
+         self.scope_contains_with_)):
       var.var_uses().RecordAccess(1)
       # Global variables do not need to be allocated.
       return not var.is_global() and var.var_uses().is_used()
@@ -1633,11 +1633,10 @@ class Scope:
     # scope (through an eval() call), it must be allocated in the
     # context.  Exception: temporary variables are not allocated in the
     # context.
-    return \
-        var.mode() != Variable.TEMPORARY and \
-        (var.is_accessed_from_inner_scope_ or
-         self.scope_calls_eval_ or self.inner_scope_calls_eval_ or
-         self.scope_contains_with_ or var.is_global())
+    return (var.mode() != Variable.TEMPORARY and
+            (var.is_accessed_from_inner_scope_ or
+             self.scope_calls_eval_ or self.inner_scope_calls_eval_ or
+             self.scope_contains_with_ or var.is_global()))
 
   def AllocateHeapSlot(self, var):
     var.rewrite_ = Slot(var, Slot.CONTEXT, self.num_heap_slots_)
@@ -1723,7 +1722,7 @@ class Scope:
         assert(var.scope() == self)
         if self.MustAllocate(var):
           if self.MustAllocateInContext(var):
-            assert(var.rewrite_ == None or \
+            assert(var.rewrite_ == None or
                    (var.slot() != None and var.slot().type() == Slot.CONTEXT))
             if var.rewrite_ == None:
               # Only set the heap allocation if the parameter has not
@@ -1741,9 +1740,9 @@ class Scope:
 
   def AllocateNonParameterLocal(self, var):
     assert(var.scope() == self)
-    assert(var.rewrite_ == None or \
-         (not var.IsVariable(JSObject("string", "result"))) or
-         (var.slot() == None or var.slot().type() != Slot.LOCAL))
+    assert(var.rewrite_ == None or
+           (not var.IsVariable(JSObject("string", "result"))) or
+           (var.slot() == None or var.slot().type() != Slot.LOCAL))
     if var.rewrite_ == None and self.MustAllocate(var):
       if self.MustAllocateInContext(var):
         self.AllocateHeapSlot(var)
@@ -1796,12 +1795,12 @@ class Scope:
 
     # If we didn't allocate any locals in the local context, then we only
     # need the minimal number of slots if we must have a local context.
-    if self.num_heap_slots_ == Context.MIN_CONTEXT_SLOTS and \
-        not must_have_local_context:
+    if (self.num_heap_slots_ == Context.MIN_CONTEXT_SLOTS and
+        not must_have_local_context):
       self.num_heap_slots_ = 0
 
     # Allocation done.
-    assert(self.num_heap_slots_ == 0 or  \
+    assert(self.num_heap_slots_ == 0 or
            self.num_heap_slots_ >= Context.MIN_CONTEXT_SLOTS)
 
   def AllocateVariables(self, context):
@@ -1884,9 +1883,9 @@ class Scope:
         # a local or outer eval() call, or an outer 'with' statement),
         # or we don't know about the outer scope (because we are
         # in an eval scope).
-        if self.is_global_scope() or \
+        if (self.is_global_scope() or
             not (self.scope_inside_with_ or self.outer_scope_is_eval_scope_ or
-               self.scope_calls_eval_ or self.outer_scope_calls_eval_):
+                 self.scope_calls_eval_ or self.outer_scope_calls_eval_)):
           # We must have a global variable.
           assert(global_scope != None)
           var = global_scope.DeclareGlobal(proxy.name())
@@ -2071,9 +2070,9 @@ class Parser:
     if tok == Token.SEMICOLON:
       self.Next()
       return
-    if self.scanner.has_line_terminator_before_next_ or \
-          tok == Token.RBRACE or \
-          tok == Token.EOS:
+    if (self.scanner.has_line_terminator_before_next_ or
+        tok == Token.RBRACE or
+        tok == Token.EOS):
       return
     self.Expect(Token.SEMICOLON)
 
@@ -2595,8 +2594,8 @@ class Parser:
         y = self.ParseBinaryExpression(prec1 + 1, accept_IN)
 
         # Compute some expressions involving only number literals.
-        if x and isinstance(x, Literal) and x.handle().IsNumber() and \
-           y and isinstance(y, Literal) and y.handle().IsNumber():
+        if (x and isinstance(x, Literal) and x.handle().IsNumber() and
+            y and isinstance(y, Literal) and y.handle().IsNumber()):
            x_val = x.AsLiteral().handle().Number()
            y_val = y.AsLiteral().handle().Number()
 
@@ -2675,8 +2674,8 @@ class Parser:
       expression = self.ParseUnaryExpression()
 
       # Compute some expressions involving only number literals.
-      if expression != None and expression.AsLiteral() and \
-         expression.AsLiteral().handle().IsNumber():
+      if (expression != None and expression.AsLiteral() and
+          expression.AsLiteral().handle().IsNumber()):
         value = expression.AsLiteral().handle().Number()
         if op == Token.ADD:
           return expression
@@ -2705,8 +2704,8 @@ class Parser:
     #   LeftHandSideExpression ('++' | '--')?
 
     expression = self.ParseLeftHandSideExpression()
-    if not self.scanner.has_line_terminator_before_next() and \
-          Token.IsCountOp(self.peek()):
+    if (not self.scanner.has_line_terminator_before_next() and
+        Token.IsCountOp(self.peek())):
       # Signal a reference error if the expression is an invalid
       # left-hand side expression.  We could report this as a syntax
       # error here but for compatibility with JSC we choose to report the
@@ -3004,9 +3003,9 @@ class Parser:
     #   Identifier ':' Statement
 
     expr = self.ParseExpression(True)
-    if self.peek() == Token.COLON and expr and \
-        expr.AsVariableProxy() != None and \
-        not expr.AsVariableProxy().is_this():
+    if (self.peek() == Token.COLON and expr and
+        expr.AsVariableProxy() != None and
+        not expr.AsVariableProxy().is_this()):
       assert(False)  # NOTE(keisuke): short cut
 
     # Parsed expression statement.
@@ -3402,9 +3401,9 @@ class PrettyPrinter(AstVisitor):
     self.PrintTypes(node)
 
   def MaybePrintSpecializedOperation(self, ltype, rtype, op):
-    if len(ltype) == 1 and ltype[0] == Type.SMI and \
-       len(rtype) == 1 and rtype[0] == Type.SMI and \
-       op == Token.ADD:
+    if (len(ltype) == 1 and ltype[0] == Type.SMI and
+        len(rtype) == 1 and rtype[0] == Type.SMI and
+        op == Token.ADD):
       self.W('.+')
     else:
       self.W(Token.String(op))
@@ -3519,8 +3518,8 @@ class AstPrinter(PrettyPrinter):
       self.PrintLiteralIndented(info, value, True)
     else:
       if type.IsKnown():
-        buf = info + ' ' + '(mode = ' + Variable.Mode2String(var.mode()) + \
-            ', type = ' + SmiAnalysis.Type2String(type) + ')'
+        buf = (info + ' ' + '(mode = ' + Variable.Mode2String(var.mode()) +
+               ', type = ' + SmiAnalysis.Type2String(type) + ')')
       else:
         buf = info + ' (mode = ' + Variable.Mode2String(var.mode()) + ')'
       self.PrintLiteralIndented(buf, value, True)
@@ -3663,9 +3662,9 @@ class AstPrinter(PrettyPrinter):
 
   def VisitCountOperation(self, node):
     if node.type().IsKnown():
-      buf = ('PRE' if node.is_prefix() else 'POST') + ' ' + \
-          Token.Name(node.op()) + ' (type = ' + \
-          SmiAnalysis.Type2String(node.type()) + ')'
+      buf = (('PRE' if node.is_prefix() else 'POST') + ' ' +
+             Token.Name(node.op()) + ' (type = ' +
+             SmiAnalysis.Type2String(node.type()) + ')')
     else:
       buf = ('PRE' if node.is_prefix() else 'POST') + ' ' + Token.Name(node.op())
     self.PrintIndentedVisit(buf, node.expression())
