@@ -908,7 +908,7 @@ class Variable:
     self.fun_ = fun
 
 class AstNode:
-  def Accept(self, v): assert(False)
+  def Accept(self, unused_v): assert(False)
 
   # Type testing & conversion.
   def AsStatement(self): return None
@@ -993,7 +993,7 @@ class BreakableStatement(Statement):
     assert(labels == None or len(labels) > 0)
 
 class Block(BreakableStatement):
-  def __init__(self, labels, capacity, is_initializer_block):
+  def __init__(self, labels, unused_capacity, is_initializer_block):
     BreakableStatement.__init__(self, labels, self.TARGET_FOR_NAMED_ONLY)
     self.statements_ = []
     self.is_initializer_block_ = is_initializer_block
@@ -1995,7 +1995,7 @@ class LexicalScope:
 
   def __enter__(self): pass
 
-  def __exit__(self, *e):
+  def __exit__(self, *unused_e):
     if self.activated:
       self.activated = False
       self.parser.top_scope = self.prev_scope
@@ -2009,7 +2009,7 @@ class TargetScope:
   def __enter__(self):
     return
 
-  def __exit__(self, *e):
+  def __exit__(self, *unused_e):
     self.parser.target_stack = self.previous
 
 class Parser:
@@ -2209,7 +2209,7 @@ class Parser:
     # elements. This way, all scripts and functions get their own
     # target stack thus avoiding illegal breaks and continues across
     # functions.
-    with TargetScope(self) as scope:
+    with TargetScope(self):
 
       assert(processor != None)
       while self.peek() != end_token:
@@ -3233,7 +3233,7 @@ class PrettyPrinter(AstVisitor):
     self.Visit(node.expression())
     self.W(";")
 
-  def VisitEmptyStatement(self, node):
+  def VisitEmptyStatement(self, unused_node):
     self.W(';')
 
   def VisitCall(self, node):
@@ -3478,7 +3478,7 @@ class IndentedScope:
 
   def __enter__(self): pass
 
-  def __exit__(self, *args):
+  def __exit__(self, *unused_args):
     IndentedScope.ast_printer_.dec_indent()
 
   @staticmethod
@@ -3584,7 +3584,7 @@ class AstPrinter(PrettyPrinter):
   def VisitExpressionStatement(self, node):
     self.Visit(node.expression())
 
-  def VisitEmptyStatement(self, node):
+  def VisitEmptyStatement(self, unused_node):
     self.PrintIndented('EMPTY\n')
 
   def VisitIfStatement(self, node):
@@ -3726,7 +3726,7 @@ class AstCopier(AstVisitor):
   def VisitExpressionStatement(self, node):
     return ExpressionStatement(self.Visit(node.expression()))
 
-  def VisitEmptyStatement(self, node):
+  def VisitEmptyStatement(self, unused_node):
     return EmptyStatement()
 
   def VisitCall(self, node):
