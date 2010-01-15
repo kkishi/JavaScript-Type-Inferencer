@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import sys
 import copy
-import re
 from optparse import OptionParser
 
 def LOG(*args):
@@ -314,7 +313,7 @@ class Scanner:
     def Select3(next, then, else_):
       self.Advance()
       if self.c0_ == next:
-        Advance()
+        self.Advance()
         return then
       else:
         return else_
@@ -712,26 +711,26 @@ class SmiAnalysis:
   LIKELY_SMI = 1
 
   def __init__(self):
-    self.kind = self.UNKNOWN
+    self.kind = SmiAnalysis.UNKNOWN
 
   def Is(self, kind):
     return self.kind == kind
 
   def IsKnown(self):
-    return not self.Is(self.UNKNOWN)
+    return not self.Is(SmiAnalysis.UNKNOWN)
   def IsUnknown(self):
-    return self.Is(self.UNKNOWN)
+    return self.Is(SmiAnalysis.UNKNOWN)
   def IsLikelySmi(self):
-    return self.Is(self.LIKELY_SMI)
+    return self.Is(SmiAnalysis.LIKELY_SMI)
 
   def CopyFrom(self, other):
     self.kind = other.kind
 
   @staticmethod
   def Type2String(type):
-    if type == self.UNKNOWN:
+    if type == SmiAnalysis.UNKNOWN:
       return "UNKNOWN"
-    elif type == self.LIKELY_SMI:
+    elif type == SmiAnalysis.LIKELY_SMI:
       return "LIKELY_SMI"
     assert(False)
 
@@ -829,14 +828,15 @@ class Variable:
     #ASSERT(name->IsSymbol());
     self.fun_ = None  # added by keisuke
 
+  @staticmethod
   def Mode2String(mode):
-    for t in ((self.VAR, "VAR"),
-          (self.CONST,"CONST"),
-          (self.DYNAMIC,"DYNAMIC"),
-          (self.DYNAMIC_GLOBAL,"DYNAMIC_GLOBAL"),
-          (self.DYNAMIC_LOCAL,"DYNAMIC_LOCAL"),
-          (self.INTERNAL,"INTERNAL"),
-          (self.TEMPORARY,"TEMPORARY")):
+    for t in ((Variable.VAR, "VAR"),
+              (Variable.CONST,"CONST"),
+              (Variable.DYNAMIC,"DYNAMIC"),
+              (Variable.DYNAMIC_GLOBAL,"DYNAMIC_GLOBAL"),
+              (Variable.DYNAMIC_LOCAL,"DYNAMIC_LOCAL"),
+              (Variable.INTERNAL,"INTERNAL"),
+              (Variable.TEMPORARY,"TEMPORARY")):
       if mode == t[0]:
         return t[1]
     assert(0)
@@ -882,11 +882,11 @@ class Variable:
       (self.mode_ == self.DYNAMIC or self.mode_ == self.DYNAMIC_GLOBAL)
 
   def local_if_not_shadowed(self):
-    assert(self.mode_ == self.DYNAMIC_LOCAL and self.local_if_not_shadowed != None)
-    return local_if_not_shadowed
+    assert(self.mode_ == self.DYNAMIC_LOCAL and self.local_if_not_shadowed_ != None)
+    return self.local_if_not_shadowed_
 
   def set_local_if_not_shadowed(self, local):
-    self.set_local_if_not_shadowed = local
+    self.set_local_if_not_shadowed_ = local
 
   def rewrite(self):
     return self.rewrite_
@@ -908,7 +908,7 @@ class Variable:
     self.fun_ = fun
 
 class AstNode:
-  def Accept(self): assert(False)
+  def Accept(self, v): assert(False)
 
   # Type testing & conversion.
   def AsStatement(self): return None
@@ -982,7 +982,7 @@ class BreakableStatement(Statement):
 
   def AsBreakableStatement(self): return self
 
-  def break_target(self): return break_target
+  def break_target(self): return self.break_target_
 
   def is_target_for_anonymous(self):
     return self.type_ == self.TARGET_FOR_ANONYMOUS
@@ -1086,7 +1086,7 @@ class ForStatement(IterationStatement):
   def init(self): return self.init_
   def cond(self): return self.cond_
   def next(self): return self.next_
-  def may_have_function_literal():
+  def may_have_function_literal(self):
     # True if there is a function literal subexpression in the condition.
     return self.may_have_function_literal_
 
@@ -1146,6 +1146,7 @@ class EmptyStatement(Statement):
 
 class Literal(Expression):
   def __init__(self, handle):
+    Expression.__init__(self)
     self.handle_ = handle
 
   def Accept(self, v):
@@ -1154,7 +1155,7 @@ class Literal(Expression):
   def AsLiteral(self):
     return self
 
-  def IsIdenticalTo(other):
+  def IsIdenticalTo(self, other):
     return self.handle_ == other.handle_
 
   def IsValidJSON(self):
@@ -1174,6 +1175,7 @@ class Literal(Expression):
 
 class VariableProxy(Expression):
   def __init__(self, name, is_this, inside_with):
+    Expression.__init__(self)
     self.name_ = name
     self.var_ = None
     self.is_this_ = is_this
@@ -1238,6 +1240,7 @@ class Slot(Expression):
   LOOKUP = 3
 
   def __init__(self, var, type, index):
+    Expression.__init__(self)
     self.var_ = var
     self.type_ = type
     self.index_ = index
@@ -1258,6 +1261,7 @@ class Call(Expression):
   sentinel_ = None
 
   def __init__(self, expression, arguments):
+    Expression.__init__(self)
     self.expression_ = expression
     self.arguments_ = arguments
 
@@ -1269,13 +1273,14 @@ class Call(Expression):
 
   def expression(self): return self.expression_
   def arguments(self): return self.arguments_
-  def position(self): return self.pos
+  def position(self): return self.pos_
 
   @staticmethod
   def sentinel(): return Call.sentinel_
 
 class UnaryOperation(Expression):
   def __init__(self, op, expression):
+    Expression.__init__(self)
     self.op_ = op
     self.expression_ = expression
     assert(Token.IsUnaryOp(op))
@@ -1291,6 +1296,7 @@ class UnaryOperation(Expression):
 
 class BinaryOperation(Expression):
   def __init__(self, op, left, right):
+    Expression.__init__(self)
     self.op_ = op
     self.left_ = left
     self.right_ = right
@@ -1316,6 +1322,7 @@ class BinaryOperation(Expression):
 
 class CountOperation(Expression):
   def __init__(self, is_prefix, op, expression):
+    Expression.__init__(self)
     self.is_prefix_ = is_prefix
     self.op_ = op
     self.expression_ = expression
@@ -1329,10 +1336,11 @@ class CountOperation(Expression):
   def expression(self): return self.expression_
 
   def MarkAsStatement(self):
-    self.is_prefix_ = true
+    self.is_prefix_ = True
 
 class CompareOperation(Expression):
   def __init__(self, op, left, right):
+    Expression.__init__(self)
     self.op_ = op
     self.left_ = left
     self.right_ = right
@@ -1347,6 +1355,7 @@ class CompareOperation(Expression):
 
 class Conditional(Expression):
   def __init__(self, condition, then_expression, else_expression):
+    Expression.__init__(self)
     self.condition_ = condition
     self.then_expression_ = then_expression
     self.else_expression_ = else_expression
@@ -1363,6 +1372,7 @@ class Conditional(Expression):
 
 class Assignment(Expression):
   def __init__(self, op, target, value):
+    Expression.__init__(self)
     self.op_ = op
     self.target_ = target
     self.value_ = value
@@ -1396,7 +1406,7 @@ class Assignment(Expression):
   def op(self): return self.op_
   def target(self): return self.target_
   def value(self): return self.value_
-  def position(self): return pos_
+  def position(self): return self.pos_
 
   # An initialization block is a series of statments of the form
   # x.y.z.a = ...; x.y.z.b = ...; etc. The parser marks the beginning and
@@ -1414,6 +1424,7 @@ class Assignment(Expression):
 class FunctionLiteral(Expression):
   num_of_instances = 0
   def __init__(self, name, scope, body, num_parameters, is_expression):
+    Expression.__init__(self)
     self.name_ = name
     self.scope_ = scope
     self.body_ = body
@@ -1665,7 +1676,7 @@ class Scope:
 
       # We are using 'arguments'. Tell the code generator that is needs to
       # allocate the arguments object by setting 'arguments_'.
-      self.arguments_ = VariableProxy(JSObject("string", "arguments", False, False))
+      self.arguments_ = VariableProxy(JSObject("string", "arguments"), False, False)
       self.arguments_.BindTo(arguments)
 
       # We also need the '.arguments' shadow variable. Declare it and create
@@ -1982,8 +1993,7 @@ class LexicalScope:
     self.prev_scope = parser.top_scope
     parser.top_scope = scope
 
-  def __enter__(self):
-    return
+  def __enter__(self): pass
 
   def __exit__(self, *e):
     if self.activated:
@@ -2180,7 +2190,7 @@ class Parser:
 
     result = [None]
     scope = self.NewScope(self.top_scope, type, self.inside_with())
-    with LexicalScope(self, scope) as lexical_scope:
+    with LexicalScope(self, scope):
       body = []
       self.ParseSourceElements(body, Token.EOS)
       result[0] = FunctionLiteral(no_name, self.top_scope, body, 0, False)
@@ -2231,7 +2241,7 @@ class Parser:
     type = Scope.FUNCTION_SCOPE
     scope = self.NewScope(self.top_scope, type, self.inside_with())
     function_literal = [None]
-    with LexicalScope(self, scope) as lexical_scope:
+    with LexicalScope(self, scope):
       self.top_scope.SetScopeName(name)
 
       #  FormalParameterList ::
@@ -2671,9 +2681,9 @@ class Parser:
         if op == Token.ADD:
           return expression
         elif op == Token.SUB:
-          return NewNumberLiteral(-value)
+          return self.NewNumberLiteral(-value)
         elif op == Token.BIT_NOT:
-          return NewNumberLiteral(~DoubleToInt32(value))
+          return self.NewNumberLiteral(~DoubleToInt32(value))
 
       return UnaryOperation(op, expression)
 
@@ -2685,7 +2695,7 @@ class Parser:
       # error here but for compatibility with JSC we choose to report the
       # error at runtime.
       if expression == None or not expression.IsValidLeftHandSide():
-        assert(false)
+        assert(False)
       return CountOperation(True, op, expression)
     else:
       return self.ParsePostfixExpression()
@@ -2725,7 +2735,7 @@ class Parser:
         self.Consume(Token.LBRACK)
         index = self.ParseExpression(True)
         result = self.NewProperty(result, index)
-        Expect(Token.RBRACK)
+        self.Expect(Token.RBRACK)
       elif peek == Token.LPAREN:
         args = self.ParseArguments()
         # Keep track of eval() calls since they disable all local variable
@@ -2748,7 +2758,7 @@ class Parser:
       elif peek == Token.PERIOD:
         self.Consume(Token.PERIOD)
         name = self.ParseIdentifier()
-        result = self.NewProperty(result, Literal("string", name))
+        result = self.NewProperty(result, Literal(JSObject("string", name)))
 
       else:
         return result
@@ -2915,7 +2925,7 @@ class Parser:
         variable_statement = self.ParseVariableDeclarations(False, each)
         if self.peek() == Token.IN and each[0] != None:
           loop = ForInStatement(labels)
-          target(self, loop)
+          target = Target(self, loop)
 
           self.Expect(Token.IN)
           enumerable = self.ParseExpression(True)
@@ -3046,7 +3056,7 @@ class Parser:
       stmt = self.ParseForStatement(labels)
 
     elif peek == Token.CONTINUE:
-      stmt = self.ParseContinueStatement(o);
+      stmt = self.ParseContinueStatement();
 
     elif peek == Token.BREAK:
       stmt = self.ParseBreakStatement(labels);
@@ -3442,7 +3452,7 @@ class PrettyPrinter(AstVisitor):
       self.Visit(node)
       self.W("\n")
       sys.stdout.write(self.buffer)
-    except Exception:
+    except:
       print self.buffer
       raise
 
@@ -3453,26 +3463,26 @@ class PrettyPrinter(AstVisitor):
 class IndentedScope:
   def __init__(self, *args):
     if len(args) == 0:
-      AstPrinter.ast_printer_.inc_indent()
+      IndentedScope.ast_printer_.inc_indent()
     else:
       txt = args[0]
       type = None if len(args) == 1 else args[1]
-      AstPrinter.ast_printer_.PrintIndented(txt)
+      IndentedScope.ast_printer_.PrintIndented(txt)
       print(type)
       if type != None and type.IsKnown():
-        AstPrinter.ast_printer_.Print(' (type = ')
-        AstPrinter.ast_printer_.Print(SmiAnalysis.Type2String(type))
-        AstPrinter.ast_printer_.Print(')')
-      AstPrinter.ast_printer_.Print('\n')
-      AstPrinter.ast_printer_.inc_indent()
+        IndentedScope.ast_printer_.Print(' (type = ')
+        IndentedScope.ast_printer_.Print(SmiAnalysis.Type2String(type))
+        IndentedScope.ast_printer_.Print(')')
+      IndentedScope.ast_printer_.Print('\n')
+      IndentedScope.ast_printer_.inc_indent()
 
   def __enter__(self): pass
 
   def __exit__(self, *args):
-    AstPrinter.ast_printer_.dec_indent()
+    IndentedScope.ast_printer_.dec_indent()
 
   @staticmethod
-  def SetAstPrinter(a): AstPrinter.ast_printer_ = a
+  def SetAstPrinter(a): IndentedScope.ast_printer_ = a
 
   ast_printer_ = None
 
@@ -3516,12 +3526,12 @@ class AstPrinter(PrettyPrinter):
       self.PrintLiteralIndented(buf, value, True)
 
   def PrintIndentedVisit(self, s, node):
-    with IndentedScope(s) as indent:
+    with IndentedScope(s):
       self.Visit(node)
 
   def PrintProgram(self, program):
     self.Init()
-    with IndentedScope('FUNC') as indent:
+    with IndentedScope('FUNC'):
       self.PrintLiteralIndented('NAME', program.name(), True)
       self.PrintLiteralIndented('INFERRED NAME', program.inferred_name(), True)
       self.PrintParameters(program.scope())
@@ -3531,13 +3541,13 @@ class AstPrinter(PrettyPrinter):
 
   def PrintDeclarations(self, declarations):
     if len(declarations) > 0:
-      with IndentedScope('DECLS') as indent:
+      with IndentedScope('DECLS'):
         for decl in declarations:
           self.Visit(decl)
 
   def PrintParameters(self, scope):
     if scope.num_parameters() > 0:
-      with IndentedScope('PARAMS') as indent:
+      with IndentedScope('PARAMS'):
         for i in range(0, scope.num_parameters()):
           self.PrintLiteralWithModeInented('VAR', scope.parameter(i),
                                            scope.parameter(i).name(),
@@ -3549,11 +3559,11 @@ class AstPrinter(PrettyPrinter):
 
   def PrintArguments(self, arguments):
     for arg in arguments:
-      self.Visit(arguments)
+      self.Visit(arg)
 
   def VisitBlock(self, node):
     block_txt = 'BLOCK INIT' if node.is_initializer_block() else 'BLOCK'
-    with IndentedScope(block_txt) as indent:
+    with IndentedScope(block_txt):
       self.PrintStatements(node.statements())
 
   def VisitDeclaration(self, node):
@@ -3562,7 +3572,7 @@ class AstPrinter(PrettyPrinter):
       self.PrintLiteralWithModeInented(Variable.Mode2String(node.mode()),
                                        node.proxy().AsVariable(),
                                        node.proxy().name(),
-                                       node.proxy(),AsVariable().type())
+                                       node.proxy().AsVariable().type())
     else:
       # function declarations
       self.PrintIndented('FUNCTION ')
@@ -3587,7 +3597,7 @@ class AstPrinter(PrettyPrinter):
     self.PrintIndentedVisit('RETURN', node.expression())
 
   def VisitFunctionLiteral(self, node):
-    with IndentedScope('FUNC LITERAL') as indent:
+    with IndentedScope('FUNC LITERAL'):
       self.PrintLiteralIndented('NAME', node.name(), False)
       self.PrintLiteralIndented('INFERRED NAME', node.inferred_name(), False)
       self.PrintParameters(node.scope())
@@ -3597,7 +3607,7 @@ class AstPrinter(PrettyPrinter):
       self.PrintStatements(node.body())
 
   def VisitConditional(self, node):
-    with IndentedScope('CONDITIONAL') as indent:
+    with IndentedScope('CONDITIONAL'):
       self.PrintIndentedVisit('?', node.condition())
       self.PrintIndentedVisit('THEN', node.then_expression())
       self.PrintIndentedVisit('ELSE', node.else_expression())
@@ -3626,22 +3636,26 @@ class AstPrinter(PrettyPrinter):
                                      node.type())
     var = node.var()
     if var != None and var.rewriter() != None:
-      with IndentedScope() as indent:
+      with IndentedScope():
         self.Visit(var.rewite())
 
   def VisitAssignment(self, node):
-    with IndentedScope(Token.Name(node.op()), node.type()) as indent:
+    with IndentedScope(Token.Name(node.op()), node.type()):
       self.Visit(node.target())
       self.Visit(node.value())
 
   def VisitCall(self, node):
-    with IndentedScope('CALL') as indent:
+    with IndentedScope('CALL'):
       self.Visit(node.expression())
       self.PrintArguments(node.arguments())
 
   def VisitCallRuntime(self, node):
     self.PrintLiteralIndented('CALL RUNTIME ', node.name(), False)
-    with IndentedScope as indent:
+    # NOTE&TODO(keisuke): Below "IndentedScope('')" should call
+    # IndentedScope::IndentedScope()
+    # instead of
+    # explicit IndentedScope::IndentedScope(const char*, SmiAnalysis*)
+    with IndentedScope(''):
       self.PrintArguments(node.arguments())
 
   def VisitUnaryOperation(self, node):
@@ -3657,12 +3671,12 @@ class AstPrinter(PrettyPrinter):
     self.PrintIndentedVisit(buf, node.expression())
 
   def VisitBinaryOperation(self, node):
-    with IndentedScope(Token.Name(node.op()), node.type()) as indent:
+    with IndentedScope(Token.Name(node.op()), node.type()):
       self.Visit(node.left())
       self.Visit(node.right())
 
   def VisitCompareOperation(self, node):
-    with IndentedScope(Token.Name(node.op()), node.type()) as indent:
+    with IndentedScope(Token.Name(node.op()), node.type()):
       self.Visit(node.left())
       self.Visit(node.right())
 
@@ -4132,7 +4146,7 @@ class Seeder(AstVisitor):
           self.Allocate(template)  # holds types of return value
           fun = template.fun()
 
-          with Seeder.TemplateScope(self, template) as template_scope:
+          with Seeder.TemplateScope(self, template):
             self.Visit(fun)
 
             for i in range(0, fun.scope().num_parameters()):
@@ -4190,8 +4204,8 @@ class Seeder(AstVisitor):
       self.Seed(node, Type.BOOL)
     elif node.op() == Token.BIT_NOT:
       self.Seed(node, Type.SMI)
-    elif node.op() == Tokne.VOID:
-      self.Seed(node, Type.UNDEF)
+    elif node.op() == Token.VOID:
+      self.Seed(node, Type.UNDEFINED)
     elif node.op() == Token.TYPEOF:
       assert(False)  # NOTE(keisuke): not implemented
     else:
@@ -4363,10 +4377,10 @@ def main():
   #ShowFlit(tmpl)
 
   nodes = []
-  iter = 0
+  iteration = 0
   while True:
-    iter += 1
-    LOG("iter", iter)
+    iteration += 1
+    LOG("iter", iteration)
     Seeder(nodes).Visit(ast)
     if not Propagate(nodes): break
 
