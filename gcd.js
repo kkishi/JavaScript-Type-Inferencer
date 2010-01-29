@@ -1,9 +1,9 @@
 function Gcd(a, b) {
     while (a != 0) {
-//        b = b % a;
+        b = b % a;
 
-        // this line, instead of above, makes inferring precision quite better.
-        b = (b % a) & 2147483647; // 0x7FFFFFFF
+        // below line, instead of above, makes inferring precision quite better.
+        // b = (b % a) & 2147483647; // 0x7FFFFFFF
 
         // swap
         a = a ^ b;

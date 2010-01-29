@@ -741,50 +741,50 @@ class SmiAnalysis:
     if self.IsUnknown():
       self.SetAsLikelySmi()
 
+class UseCount:
+  def __init__(self):
+    self.nreads_ = 0
+    self.nwrites_ = 0
+
+  def RecordRead(self, weight):
+    assert(weight > 0)
+    self.nreads_ += weight
+    # We must have a positive nreads_ here. Handle
+    # any kind of overflow by setting nreads_ to
+    # some large-ish value.
+    if self.nreads_ <= 0: self.nreads_ = 1000000
+    assert(self.is_read() and self.is_used())
+
+  def RecordWrite(self, weight):
+    assert(weight > 0)
+    self.nwrites_ += weight
+    # We must have a positive nwrites_ here. Handle
+    # any kind of overflow by setting nwrites_ to
+    # some large-ish value.
+    if self.nwrites_ <= 0: self.nwrites_ = 1000000
+    assert(self.is_written() and self.is_used())
+
+  def RecordAccess(self, weight):
+    self.RecordRead(weight)
+    self.RecordWrite(weight)
+
+  def RecordUses(self, uses):
+    if uses.nreads() > 0: self.RecordRead(uses.nreads())
+    if uses.nwrites() > 0: self.RecordWrite(uses.nwrites())
+
+  def nreads(self): return self.nreads_
+  def nwrites(self): return self.nwrites_
+  def nuses(self): return self.nreads_ + self.nwrites_
+
+  def is_read(self): return self.nreads() > 0
+  def is_written(self): return self.nwrites() > 0
+  def is_used(self): return self.nuses() > 0
+
 # The AST refers to variables via VariableProxies - placeholders for the actual
 # variables. Variables themselves are never directly referred to from the AST,
 # they are maintained by scopes, and referred to from VariableProxies and Slots
 # after binding and variable allocation.
 class Variable:
-  class UseCount:
-    def __init__(self):
-      self.nreads_ = 0
-      self.nwrites_ = 0
-
-    def RecordRead(self, weight):
-      assert(weight > 0)
-      self.nreads_ += weight
-      # We must have a positive nreads_ here. Handle
-      # any kind of overflow by setting nreads_ to
-      # some large-ish value.
-      if self.nreads_ <= 0: self.nreads_ = 1000000
-      assert(self.is_read() and self.is_used())
-
-    def RecordWrite(self, weight):
-      assert(weight > 0)
-      self.nwrites_ += weight
-      # We must have a positive nwrites_ here. Handle
-      # any kind of overflow by setting nwrites_ to
-      # some large-ish value.
-      if self.nwrites_ <= 0: self.nwrites_ = 1000000
-      assert(self.is_written() and self.is_used())
-
-    def RecordAccess(self, weight):
-      self.RecordRead(weight)
-      self.RecordWrite(weight)
-
-    def RecordUses(self, uses):
-      if uses.nreads() > 0: self.RecordRead(uses.nreads())
-      if uses.nwrites() > 0: self.RecordWrite(uses.nwrites())
-
-    def nreads(self): return self.nreads_
-    def nwrites(self): return self.nwrites_
-    def nuses(self): return self.nreads_ + self.nwrites_
-
-    def is_read(self): return self.nreads() > 0
-    def is_written(self): return self.nwrites() > 0
-    def is_used(self): return self.nuses() > 0
-
   #enum Mode {
   # User declared variables:
   VAR = 0             # declared via 'var', and 'function' declarations
@@ -824,7 +824,7 @@ class Variable:
     self.local_if_not_shadowed_ = None
     self.is_accessed_from_inner_scope_ = False
     self.rewrite_ = None
-    self.var_uses_ = Variable.UseCount()
+    self.var_uses_ = UseCount()
     #ASSERT(name->IsSymbol());
     self.fun_ = None  # added by keisuke
 
@@ -1182,6 +1182,8 @@ class VariableProxy(Expression):
     self.inside_with_ = inside_with
     # names must be canonicalized for fast equality checks
     #ASSERT(name->IsSymbol());
+    self.var_uses_ = UseCount()
+    self.obj_uses_ = UseCount()
 
   def Accept(self, v):
     return v.VisitVariableProxy(self)
@@ -1257,6 +1259,41 @@ class Slot(Expression):
   def index(self): return self.index_
   def is_arguments(self): return self.var_.is_arguments()
 
+class Property(Expression):
+  # Synthetic properties are property lookups introduced by the system,
+  # to objects that aren't visible to the user. Function calls to synthetic
+  # properties should use the global object as receiver, not the base object
+  # of the resolved Reference.
+  #enum Type { NORMAL, SYNTHETIC };
+  NORMAL = 0
+  SYNTHETIC = 1
+  #def __init__(self, obj, key, pos, type = Property.NORMAL):
+  def __init__(self, obj, key, pos, type = 0):
+    Expression.__init__(self)
+    self.obj_ = obj
+    self.key_ = key
+    self.pos_ = pos
+    self.type_ = type
+
+  def Accept(self, v): return v.VisitProperty(self)
+
+  # Type testing & conversion
+  def AsProperty(self): return self
+
+  def IsValidLeftHandSide(self): return True
+
+  def obj(self): return self.obj_
+  def key(self): return self.key_
+  def position(self): return self.pos_
+  def is_synthetic(self): return self.type_ == SYNTHETIC
+
+  # Returns a property singleton property access on 'this'.  Used
+  # during preparsing.
+  #static Property* this_property() { return &this_property_; }
+
+  # Dummy property used during preparsing.
+  #static Property this_property_;
+
 class Call(Expression):
   sentinel_ = None
 
@@ -1277,6 +1314,17 @@ class Call(Expression):
 
   @staticmethod
   def sentinel(): return Call.sentinel_
+
+class CallNew(Expression):
+  def __init__(self, expression, arguments):
+    Expression.__init__(self)
+    self.expression_ = expression
+    self.arguments_ = arguments
+
+  def Accept(self, v): return v.VisitCallNew(self)
+
+  def expression(self): return self.expression_
+  def arguments(self): return self.arguments_
 
 class UnaryOperation(Expression):
   def __init__(self, op, expression):
@@ -1988,16 +2036,16 @@ class Scope:
 class LexicalScope:
   def __init__(self, parser, scope):
     self.activated = True
-    self.parser = parser
-    self.prev_scope = parser.top_scope
-    parser.top_scope = scope
+    self.parser_ = parser
+    self.prev_scope_ = parser.top_scope_
+    parser.top_scope_ = scope
 
   def __enter__(self): pass
 
   def __exit__(self, *unused_e):
     if self.activated:
       self.activated = False
-      self.parser.top_scope = self.prev_scope
+      self.parser_.top_scope_ = self.prev_scope_
 
 class TargetScope:
   def __init__(self, parser):
@@ -2023,7 +2071,7 @@ class Parser:
 
   def __init__(self, scanner):
     self.scanner = scanner
-    self.top_scope = None
+    self.top_scope_ = None
     self.temp_scope = None
     self.target_stack = None
     self.allow_native_syntax = False
@@ -2083,6 +2131,9 @@ class Parser:
   def NewNumberLiteral(self, number):
     return Literal(JSObject("number", number))
 
+  def NewProperty(self, obj, key, pos):
+    return Property(obj, key, pos)
+
   def NewCall(self, expression, arguments):
     return Call(expression, arguments)
 
@@ -2106,12 +2157,12 @@ class Parser:
     # to the corresponding activation frame at runtime if necessary.
     # For instance declarations inside an eval scope need to be added
     # to the calling function context.
-    if self.top_scope.is_function_scope():
+    if self.top_scope_.is_function_scope():
       # Declare the variable in the function scope.
-      var = self.top_scope.LocalLookup(name)
+      var = self.top_scope_.LocalLookup(name)
       if var == None:
         # Declare the name.
-        var = self.top_scope.DeclareLocal(name, mode)
+        var = self.top_scope_.DeclareLocal(name, mode)
       else:
         assert(False)
         # The name was declared before; check for conflicting
@@ -2144,14 +2195,14 @@ class Parser:
     # semantic issue as long as we keep the source order, but it may be
     # a performance issue since it may lead to repeated
     # Runtime::DeclareContextSlot() calls.
-    proxy = self.top_scope.NewUnresolved(name, self.inside_with())
-    self.top_scope.AddDeclaration(Declaration(proxy, mode, fun))
+    proxy = self.top_scope_.NewUnresolved(name, self.inside_with())
+    self.top_scope_.AddDeclaration(Declaration(proxy, mode, fun))
 
     # For global const variables we bind the proxy to a variable.
-    if mode == Variable.CONST and self.top_scope.is_global_scope():
+    if mode == Variable.CONST and self.top_scope_.is_global_scope():
       assert(resolve);  # should be set by all callers
       kind = Variable.NORMAL
-      var = Variable(self.top_scope, name, Variable.CONST, True, kind)
+      var = Variable(self.top_scope_, name, Variable.CONST, True, kind)
 
     # If requested and we have a local variable, bind the proxy to the variable
     # at parse-time. This is used for functions (and consts) declared inside
@@ -2188,11 +2239,11 @@ class Parser:
     no_name = JSObject("string", "")
 
     result = [None]
-    scope = self.NewScope(self.top_scope, type, self.inside_with())
+    scope = self.NewScope(self.top_scope_, type, self.inside_with())
     with LexicalScope(self, scope):
       body = []
       self.ParseSourceElements(body, Token.EOS)
-      result[0] = FunctionLiteral(no_name, self.top_scope, body, 0, False)
+      result[0] = FunctionLiteral(no_name, self.top_scope_, body, 0, False)
 
     top = result[0].scope()
     top.AllocateVariables(None)
@@ -2238,10 +2289,10 @@ class Parser:
     num_parameters = 0
     # Parse function body.
     type = Scope.FUNCTION_SCOPE
-    scope = self.NewScope(self.top_scope, type, self.inside_with())
+    scope = self.NewScope(self.top_scope_, type, self.inside_with())
     function_literal = [None]
     with LexicalScope(self, scope):
-      self.top_scope.SetScopeName(name)
+      self.top_scope_.SetScopeName(name)
 
       #  FormalParameterList ::
       #    '(' (Identifier)*[','] ')'
@@ -2249,7 +2300,7 @@ class Parser:
       done = (self.peek() == Token.RPAREN)
       while not done:
         param_name = self.ParseIdentifier()
-        self.top_scope.AddParameter(self.top_scope.DeclareLocal(param_name, Variable.VAR))
+        self.top_scope_.AddParameter(self.top_scope_.DeclareLocal(param_name, Variable.VAR))
         num_parameters += 1
 
         done = (self.peek() == Token.RPAREN)
@@ -2268,8 +2319,8 @@ class Parser:
       # future we can change the AST to only refer to VariableProxies
       # instead of Variables and Proxis as is the case now.
       if function_name != None and function_name.value != "":
-        fvar = self.top_scope.DeclareFunctionVar(function_name)
-        fproxy = self.top_scope.NewUnresolved(function_name, self.inside_with())
+        fvar = self.top_scope_.DeclareFunctionVar(function_name)
+        fproxy = self.top_scope_.NewUnresolved(function_name, self.inside_with())
         fproxy.BindTo(fvar)
         body.append(ExpressionStatement(Assignment(Token.INIT_VAR,
                                                    fproxy, ThisFunction())))
@@ -2278,7 +2329,7 @@ class Parser:
 
       self.Expect(Token.RBRACE)
 
-      function_literal[0] = FunctionLiteral(name, self.top_scope, body,
+      function_literal[0] = FunctionLiteral(name, self.top_scope_, body,
                                             num_parameters, function_name != "")
 
     return function_literal[0]
@@ -2733,7 +2784,7 @@ class Parser:
       if peek == Token.LBRACK:
         self.Consume(Token.LBRACK)
         index = self.ParseExpression(True)
-        result = self.NewProperty(result, index)
+        result = self.NewProperty(result, index, -1)
         self.Expect(Token.RBRACK)
       elif peek == Token.LPAREN:
         args = self.ParseArguments()
@@ -2749,18 +2800,47 @@ class Parser:
         callee = result.AsVariableProxy()
         if callee != None and callee.IsVariable("eval"):
           name = callee.name()
-          var = self.top_scope.Lookup(name)
+          var = self.top_scope_.Lookup(name)
           if var == None:
-            self.top_scope.RecordEvalCall()
+            self.top_scope_.RecordEvalCall()
         result = self.NewCall(result, args)
 
       elif peek == Token.PERIOD:
         self.Consume(Token.PERIOD)
         name = self.ParseIdentifier()
-        result = self.NewProperty(result, Literal(JSObject("string", name)))
+        result = self.NewProperty(result, Literal(JSObject("string", name)), -1)
 
       else:
         return result
+
+  def ParseNewPrefix(self):
+    # NewExpression ::
+    #   ('new')+ MemberExpression
+
+    # The grammar for new expressions is pretty warped. The keyword
+    # 'new' can either be a part of the new expression (where it isn't
+    # followed by an argument list) or a part of the member expression,
+    # where it must be followed by an argument list. To accommodate
+    # this, we parse the 'new' keywords greedily and keep track of how
+    # many we have parsed. This information is then passed on to the
+    # member expression parser, which is only allowed to match argument
+    # lists as long as it has 'new' prefixes left
+    self.Expect(Token.NEW)
+    #PositionStack::Element pos(stack, scanner().location().beg_pos);
+
+    result = None
+    if self.peek() == Token.NEW:
+      result = self.ParseNewPrefix()
+    else:
+      result = self.ParseMemberWithNewPrefixesExpression(None)
+
+    #if (!stack->is_empty()) {
+      #int last = stack->pop();
+    result = CallNew(result, [])
+    return result
+
+  def ParseNewExpression(self):
+    return self.ParseNewPrefix()
 
   def ParseMemberExpression(self):
     return self.ParseMemberWithNewPrefixesExpression(None)
@@ -2799,18 +2879,10 @@ class Parser:
     result = None
     peek = self.peek()
     if peek == Token.THIS:
-      assert(False)
-#    case Token::THIS: {
-#      Consume(Token::THIS);
-#      if (is_pre_parsing_) {
-#        result = VariableProxySentinel::this_proxy();
-#      } else {
-#        VariableProxy* recv = top_scope_->receiver();
-#        recv->var_uses()->RecordRead(1);
-#        result = recv;
-#      }
-#      break;
-#    }
+      self.Consume(Token.THIS)
+      recv = self.top_scope_.receiver();
+      recv.var_uses().RecordRead(1)
+      result = recv
 
     elif peek == Token.NULL_LITERAL:
       self.Consume(Token.NULL_LITERAL)
@@ -2826,7 +2898,7 @@ class Parser:
 
     elif peek == Token.IDENTIFIER:
       name = self.ParseIdentifier()
-      result = self.top_scope.NewUnresolved(name, self.inside_with())
+      result = self.top_scope_.NewUnresolved(name, self.inside_with())
 
     elif peek == Token.NUMBER:
       self.Consume(Token.NUMBER)
@@ -3119,16 +3191,27 @@ class PrettyPrinter(AstVisitor):
     def __exit__(self, *e):
       self.visitor.in_original_function_literal = self.prev_state
 
-  def __init__(self, print_types = False, print_address = False):
+  def __init__(self, print_types = False, print_address = False,
+               print_likely_smi = False):
     AstVisitor.__init__(self)
     self.print_types = print_types
     self.print_address = print_address
+    self.print_likely_smi = print_likely_smi
     # whether printing function literal in original AST or not.
     # if we are printing original one, say, generic version, no type informations
     # are seeded so no need to print the informations.
     self.in_original_function_literal = False
     self.nest = 0
     self.buffer = ""
+
+  def Visit(self, node):
+    is_smi = (self.print_likely_smi and
+              '__type__' in dir(node) and
+              len(node.__type__.types) == 1 and
+              node.__type__.types[0] == Type.SMI)
+    if is_smi: self.W('int(')
+    AstVisitor.Visit(self, node)
+    if is_smi: self.W(')')
 
   def W(self, S):
     self.buffer += S
@@ -3412,12 +3495,14 @@ class PrettyPrinter(AstVisitor):
     self.W("(")
     self.Visit(node.left())
 
-    if not self.in_original_function_literal:
-      self.MaybePrintSpecializedOperation(Seeder.GetTypeNode(node.left()).types,
-                                          Seeder.GetTypeNode(node.right()).types,
-                                          node.op())
-    else:
-      self.W(Token.String(node.op()))
+#     if not self.in_original_function_literal:
+#       self.MaybePrintSpecializedOperation(Seeder.GetTypeNode(node.left()).types,
+#                                           Seeder.GetTypeNode(node.right()).types,
+#                                           node.op())
+#     else:
+#       self.W(Token.String(node.op()))
+
+    self.W(Token.String(node.op()))
 
     self.Visit(node.right())
     self.W(")")
@@ -4358,6 +4443,7 @@ def main():
   myusage = "%prog [-pl] < %file"
   psr = OptionParser(usage = myusage)
   psr.add_option('-p', action='store_true', dest='print_types')
+  psr.add_option('-P', action='store_true', dest='print_likely_smi')
   psr.add_option('-l', action='store_true', dest='enable_logging')
   psr.add_option('-a', action='store_true', dest='print_address')
   (opts, args) = psr.parse_args(sys.argv)
@@ -4387,7 +4473,7 @@ def main():
   LOG(str(FunctionLiteral.num_of_instances), "function literal")
   LOG(str(TemplateRepository.num_of_templates), "function templates")
 
-  PrettyPrinter(opts.print_types, opts.print_address).PrintLn(ast)
+  PrettyPrinter(opts.print_types, opts.print_address, opts.print_likely_smi).PrintLn(ast)
   #template = AstCopier().Copy(ast)
   #AstPrinter().PrintProgram(ast)
 
